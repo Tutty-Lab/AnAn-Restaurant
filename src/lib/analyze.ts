@@ -112,7 +112,11 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
   const dailyTargets = new Map<string, number>();
   for (const weekDates of byWeek.values()) {
     const hours = weekDates.reduce((sum, date) => sum + (byDate.get(date) ?? []).reduce((acc, shift) => acc + shift.paidMinutes, 0), 0) / 60;
-    for (const [date, target] of weightedDailyTargets(weekDates, hours, (value) => effectiveWeekdayKey(value, holidays))) dailyTargets.set(date, target);
+    const openMinutesOf = (value: string) => resolveDay(input.workHours, value, holidays, overrides).blocks
+      .reduce((sum, block) => sum + (block.endMinutes - block.startMinutes), 0);
+    for (const [date, target] of weightedDailyTargets(weekDates, hours, (value) => effectiveWeekdayKey(value, holidays), openMinutesOf)) {
+      dailyTargets.set(date, target);
+    }
   }
   const employeesById = new Map(input.employees.map((employee) => [employee.id, employee]));
 

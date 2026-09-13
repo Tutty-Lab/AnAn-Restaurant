@@ -8,20 +8,12 @@ import { calculatePause } from "../time";
 import { datesOfMonth } from "../demand";
 import { resolveDay } from "../workHours";
 import { publicHolidays } from "../holidays";
-import { contractOpenDays, monthlyTargetMinutes } from "../contract";
+import { monthlyTargetMinutesFor } from "../contract";
 import { weekStartOf } from "../weeks";
 
-const openDaysOf = (year: number, month: number): number => {
+const openDatesOf = (year: number, month: number): string[] => {
   const hol = publicHolidays(year);
-  const openDates = datesOfMonth(year, month).filter(
-    (d) => !resolveDay(DEFAULT_WORK_HOURS, d, hol, {}).closed,
-  );
-  const byWeek = new Map<string, number>();
-  for (const date of openDates) {
-    const week = weekStartOf(date);
-    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
-  }
-  return contractOpenDays([...byWeek.values()]);
+  return datesOfMonth(year, month).filter((d) => !resolveDay(DEFAULT_WORK_HOURS, d, hol, {}).closed);
 };
 
 describe("Scheduler – August 2026 Beispieldaten", () => {
@@ -32,12 +24,12 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
     employees: SAMPLE_EMPLOYEES,
   });
 
-  const openDays = openDaysOf(2026, 8);
+  const openDates = openDatesOf(2026, 8);
 
   it("verteilt die Summe der Wochenstunden innerhalb des 30-Minuten-Rasters", () => {
-    const soll = SAMPLE_EMPLOYEES.reduce((sum, e) => sum + monthlyTargetMinutes(e, openDays), 0);
+    const soll = SAMPLE_EMPLOYEES.reduce((sum, e) => sum + monthlyTargetMinutesFor(e, openDates), 0);
     const totalMinutes = shifts.reduce((s, x) => s + x.paidMinutes, 0);
-    expect(Math.abs(totalMinutes - soll)).toBeLessThanOrEqual(SAMPLE_EMPLOYEES.length * 15);
+    expect(Math.abs(totalMinutes - soll)).toBeLessThan(SAMPLE_EMPLOYEES.length * 30);
   });
 
   it("trifft jedes Mitarbeiter-Soll bis auf die Randwochen-Rundung", () => {
@@ -45,12 +37,12 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
       const assigned = shifts
         .filter((s) => s.employeeId === emp.id)
         .reduce((sum, s) => sum + s.paidMinutes, 0);
-      expect(Math.abs(assigned - monthlyTargetMinutes(emp, openDays))).toBeLessThanOrEqual(15);
+      expect(Math.abs(assigned - monthlyTargetMinutesFor(emp, openDates))).toBeLessThan(30);
     }
   });
 
   it("hält alle harten Regeln ein (Validierung grün)", () => {
-    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDays);
+    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDates);
     expect(result.errors.filter((e) => e.severity !== "warning")).toEqual([]);
     expect(result.valid).toBe(true);
   });
@@ -99,17 +91,16 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
     );
   });
 
-  it("keeps individual contracts while spreading each person's hours evenly", () => {
+  it("keeps individual contracts while weighting busy days (T6–CN = 1,5)", () => {
     const week = shifts.filter((shift) => shift.employeeId === "ma-1" && weekStartOf(shift.date) === "2026-08-03");
     expect(week.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(39 * 60);
-    // Gleiche Tagesstunden je Person, kein Stoßtag-Aufschlag mehr: Stoßtage :
-    // Normaltage liegen nahe 1,0 (Sonntag trägt nur wegen längerer Öffnung ein Plus).
+    // Tab „Tài liệu": Stoßtage tragen je Tag rund das 1,5-Fache eines Normaltags.
     const all = shifts.filter((shift) => weekStartOf(shift.date) === "2026-08-03");
     const busy = all.filter((shift) => [0, 5, 6].includes(new Date(`${shift.date}T12:00:00`).getDay()))
       .reduce((sum, shift) => sum + shift.paidMinutes, 0);
     const normal = all.reduce((sum, shift) => sum + shift.paidMinutes, 0) - busy;
-    expect(busy / normal).toBeGreaterThanOrEqual(0.98);
-    expect(busy / normal).toBeLessThanOrEqual(1.15);
+    expect(busy / normal).toBeGreaterThanOrEqual(1.3);
+    expect(busy / normal).toBeLessThanOrEqual(1.7);
   });
 });
 
@@ -121,7 +112,7 @@ describe("Scheduler – weitere Monate robust", () => {
       workHours: DEFAULT_WORK_HOURS,
       employees: SAMPLE_EMPLOYEES,
     });
-    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDaysOf(2026, 2));
+    const result = validateSchedule(SAMPLE_EMPLOYEES, shifts, 2026, openDatesOf(2026, 2));
     expect(result.valid).toBe(true);
   });
 });

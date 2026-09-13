@@ -1,5 +1,5 @@
 // ============================================================================
-// Beispieldaten: die heutige Besetzung von VietHaus, Summe = 606 bezahlte Stunden.
+// Beispieldaten: die heutige Besetzung von Viet Cuisine (12 Personen, Wochenverträge).
 // ============================================================================
 
 import type { Employee, Schedule } from "../types";

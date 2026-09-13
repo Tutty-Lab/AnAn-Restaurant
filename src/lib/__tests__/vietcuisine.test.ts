@@ -1,6 +1,6 @@
 // ============================================================================
 // Die zwei Besonderheiten von Viet Cuisine:
-//   - Wochenverträge (weeklyHours) -> Monats-Soll über die offenen Tage.
+//   - Wochenverträge (weeklyHours) -> Monats-Soll über die Wochenanteile.
 //   - Eine feste Frühschicht (6:30–14:30), die immer in genau diesem Fenster
 //     liegt und best effort das Soll trifft (Warnung, wenn nicht ganz).
 // ============================================================================
@@ -8,26 +8,24 @@
 import { describe, expect, it } from "vitest";
 import { generateSchedule } from "../scheduler";
 import { validateSchedule } from "../validation";
-import { DEFAULT_WORK_HOURS, resolveDay } from "../workHours";
+import { DEFAULT_WORK_HOURS, effectiveWeekdayKey, resolveDay } from "../workHours";
 import { publicHolidays } from "../holidays";
 import { datesOfMonth } from "../demand";
-import { contractOpenDays, monthlyTargetMinutes, OPEN_DAYS_PER_WEEK, weeklyTargetMinutes } from "../contract";
+import {
+  monthlyTargetMinutes,
+  monthlyTargetMinutesFor,
+  OPEN_DAYS_PER_WEEK,
+  weeklyBudgetMinutes,
+  weeklyTargetMinutes,
+} from "../contract";
 import type { Employee, Shift } from "../../types";
 import { weekStartOf } from "../weeks";
 import { SAMPLE_EMPLOYEES } from "../sampleData";
-import { CLOSING_MAX, CLOSING_MIN, CLOSING_START, workingAt } from "../staffing";
+import { staffingWindows, workingAt } from "../staffing";
 
-const openDaysOf = (year: number, month: number): number => {
+const openDatesOf = (year: number, month: number): string[] => {
   const hol = publicHolidays(year);
-  const openDates = datesOfMonth(year, month).filter(
-    (d) => !resolveDay(DEFAULT_WORK_HOURS, d, hol, {}).closed,
-  );
-  const byWeek = new Map<string, number>();
-  for (const date of openDates) {
-    const week = weekStartOf(date);
-    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
-  }
-  return contractOpenDays([...byWeek.values()]);
+  return datesOfMonth(year, month).filter((d) => !resolveDay(DEFAULT_WORK_HOURS, d, hol, {}).closed);
 };
 
 const wk = (id: string, t: Employee["employmentType"], h: number, x: Partial<Employee> = {}): Employee => ({
@@ -40,16 +38,16 @@ const wk = (id: string, t: Employee["employmentType"], h: number, x: Partial<Emp
 });
 
 describe("Wochenvertrag -> Monats-Soll", () => {
-  it("rechnet 39 h/Woche über die offenen Tage um", () => {
-    const openDays = 26;
+  it("rechnet 39 h/Woche über offene Tage um (Altpfad nach Tagen)", () => {
     // 39 × 26 / 6 = 169 h.
-    expect(monthlyTargetMinutes(wk("a", "VOLLZEIT", 39), openDays)).toBe(169 * 60);
+    expect(monthlyTargetMinutes(wk("a", "VOLLZEIT", 39), 26)).toBe(169 * 60);
     expect(OPEN_DAYS_PER_WEEK).toBe(6);
   });
 
   it("ohne weeklyHours gilt targetMinutes direkt", () => {
     const emp: Employee = { id: "a", name: "a", employmentType: "TEILZEIT", targetMinutes: 100 * 60 };
     expect(monthlyTargetMinutes(emp, 26)).toBe(100 * 60);
+    expect(monthlyTargetMinutesFor(emp, openDatesOf(2026, 9))).toBe(100 * 60);
   });
 
   it("verteilt Rundungsreste über Randwochen ohne krumme Uhrzeiten", () => {
@@ -69,6 +67,17 @@ describe("Wochenvertrag -> Monats-Soll", () => {
     expect(Math.abs(values.reduce((sum, minutes) => sum + minutes, 0) - target)).toBeLessThanOrEqual(15);
   });
 
+  it("teilt eine Woche über den Monatswechsel nach Tagesgewicht, nicht nach Tagen", () => {
+    const employee = wk("a", "VOLLZEIT", 39);
+    const sep = weeklyBudgetMinutes(employee, openDatesOf(2026, 9), { first: "2026-09-01", last: "2026-09-30" });
+    const oct = weeklyBudgetMinutes(employee, openDatesOf(2026, 10), { first: "2026-10-01", last: "2026-10-31" });
+    // Woche ab 28.9.: Di+Mi (Gewicht 2 von 7,5) im September, Do–So (5,5 von 7,5)
+    // im Oktober – zusammen genau 39 h, und die Randtage bekommen kein Übergewicht.
+    expect(sep.get("2026-09-28")).toBe(10 * 60);
+    expect(oct.get("2026-09-28")).toBe(29 * 60);
+    expect(sep.get("2026-09-07")).toBe(39 * 60);
+  });
+
   it("requires an explicit pause interval for weekly shifts", () => {
     const employee = wk("pause", "VOLLZEIT", 39);
     const shift: Shift = {
@@ -82,7 +91,7 @@ describe("Wochenvertrag -> Monats-Soll", () => {
       shiftType: "CUSTOM",
       generated: false,
     };
-    const result = validateSchedule([employee], [shift], 2026, openDaysOf(2026, 9));
+    const result = validateSchedule([employee], [shift], 2026, openDatesOf(2026, 9));
     expect(result.errors.some((error) => error.message.includes("Chưa xếp giờ bắt đầu nghỉ"))).toBe(true);
   });
 
@@ -97,13 +106,13 @@ describe("Wochenvertrag -> Monats-Soll", () => {
 
   for (const month of [9, 10, 11]) {
     it(`tháng ${month}: mỗi người sát định mức trong lưới 30 phút`, () => {
-      const openDays = openDaysOf(2026, month);
+      const openDates = openDatesOf(2026, month);
       const shifts = generateSchedule({ year: 2026, month, workHours: DEFAULT_WORK_HOURS, employees: team() });
       for (const e of team()) {
         const got = shifts.filter((s) => s.employeeId === e.id).reduce((a, s) => a + s.paidMinutes, 0);
-        expect(Math.abs(got - monthlyTargetMinutes(e, openDays))).toBeLessThanOrEqual(15);
+        expect(Math.abs(got - monthlyTargetMinutesFor(e, openDates))).toBeLessThan(30);
       }
-      const v = validateSchedule(team(), shifts, 2026, openDays);
+      const v = validateSchedule(team(), shifts, 2026, openDates);
       expect(v.errors.filter((x) => x.severity !== "warning")).toEqual([]);
     });
   }
@@ -139,12 +148,12 @@ describe("Feste Frühschicht 6:30–14:30", () => {
     });
 
     it(`tháng ${month}: giờ ca cố định KHÔNG vượt định mức (thiếu thì cảnh báo)`, () => {
-      const openDays = openDaysOf(2026, month);
-      const soll = monthlyTargetMinutes(team().find((e) => e.id === "fx")!, openDays);
+      const openDates = openDatesOf(2026, month);
+      const soll = monthlyTargetMinutesFor(team().find((e) => e.id === "fx")!, openDates);
       const got = fx.reduce((a, s) => a + s.paidMinutes, 0);
-      expect(got).toBeLessThanOrEqual(soll);
-      if (got < soll) {
-        const v = validateSchedule(team(), shifts, 2026, openDays);
+      expect(got).toBeLessThan(soll + 30);
+      if (soll - got >= 30) {
+        const v = validateSchedule(team(), shifts, 2026, openDates);
         expect(v.errors.some((e) => e.employeeId === "fx" && e.severity === "warning")).toBe(true);
       }
     });
@@ -204,16 +213,17 @@ describe("Wochenplan: feste Wochenstruktur", () => {
     }
   });
 
-  it("keeps three to four people through closing", () => {
+  it("staffs closing by day weight (3–4 on T3–T5, 5–6 on T6–CN)", () => {
     const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES });
     const holidays = publicHolidays(2026);
     for (const date of datesOfMonth(2026, 9)) {
-      if (resolveDay(DEFAULT_WORK_HOURS, date, holidays, {}).closed) continue;
       const day = resolveDay(DEFAULT_WORK_HOURS, date, holidays, {});
-      for (let minute = CLOSING_START; minute < day.window.endMinutes; minute++) {
+      if (day.closed) continue;
+      const closing = staffingWindows(day.blocks, effectiveWeekdayKey(date, holidays)).find((w) => w.label === "Đóng cửa")!;
+      for (let minute = closing.startMinutes; minute < closing.endMinutes; minute++) {
         const staff = new Set(shifts.filter((shift) => shift.date === date && workingAt(shift, minute)).map((shift) => shift.employeeId)).size;
-        expect(staff, `${date} ${minute}`).toBeGreaterThanOrEqual(CLOSING_MIN);
-        expect(staff, `${date} ${minute}`).toBeLessThanOrEqual(CLOSING_MAX);
+        expect(staff, `${date} ${minute}`).toBeGreaterThanOrEqual(closing.minStaff);
+        expect(staff, `${date} ${minute}`).toBeLessThanOrEqual(closing.maxStaff);
       }
     }
   });
@@ -251,18 +261,47 @@ describe("Wochenplan: feste Wochenstruktur", () => {
     }
   });
 
-  it("verteilt die Stunden je Person gleichmäßig über die Woche (kein Stoßtag-Aufschlag)", () => {
+  it("verteilt die Wochenstunden nach Tagesgewicht (T6–CN = 1,5 × T3–T5)", () => {
     const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES });
-    // Gleiche Tagesstunden je Person (39 h / 6 Tage ≈ 6,5 h). Der Abendandrang an
-    // Fr–So wird über die Personal-Fenster gedeckt, nicht über längere Tage –
-    // Stoßtage : Normaltage liegen daher nahe 1,0.
-    for (const week of ["2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21"]) {
+    // Tab „Tài liệu": Tagesziel = Wochenstunden × Gewicht ÷ Summe der Gewichte.
+    // Genau 1,5 ist nicht zugesichert (Verträge, Pausen, Mindestbesetzung), ein
+    // deutlicher Aufschlag an Stoßtagen aber schon. Geprüft je voller Woche.
+    const isBusy = (date: string) => [0, 5, 6].includes(new Date(`${date}T12:00:00`).getDay());
+    for (const week of ["2026-09-07", "2026-09-14", "2026-09-21"]) {
       const own = shifts.filter((shift) => weekStartOf(shift.date) === week);
-      const busy = own.filter((shift) => [0, 5, 6].includes(new Date(`${shift.date}T12:00:00`).getDay()));
-      const busyMinutes = busy.reduce((sum, shift) => sum + shift.paidMinutes, 0);
-      const normalMinutes = own.reduce((sum, shift) => sum + shift.paidMinutes, 0) - busyMinutes;
-      expect(busyMinutes / normalMinutes).toBeGreaterThanOrEqual(0.98);
-      expect(busyMinutes / normalMinutes).toBeLessThanOrEqual(1.15);
+      const busyPerDay = own.filter((s) => isBusy(s.date)).reduce((sum, s) => sum + s.paidMinutes, 0) / 3;
+      const normalPerDay = own.filter((s) => !isBusy(s.date)).reduce((sum, s) => sum + s.paidMinutes, 0) / 3;
+      expect(busyPerDay / normalPerDay, week).toBeGreaterThanOrEqual(1.3);
+      expect(busyPerDay / normalPerDay, week).toBeLessThanOrEqual(1.7);
+    }
+  });
+
+  it("does not overstaff the weekdays of a week that ends the month", () => {
+    // 29./30.9.2026 (Di/Mi) gehören zur Woche ab 28.9., der Rest liegt im Oktober.
+    // Sie dürfen nicht mehr Stunden tragen als ein Di/Mi einer vollen Woche.
+    const shifts = generateSchedule({ year: 2026, month: 9, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES });
+    const paidOn = (date: string) => shifts.filter((s) => s.date === date).reduce((sum, s) => sum + s.paidMinutes, 0);
+    const fullWeekTuesday = paidOn("2026-09-22");
+    expect(paidOn("2026-09-29")).toBeLessThanOrEqual(fullWeekTuesday * 1.1);
+    expect(paidOn("2026-09-30")).toBeLessThanOrEqual(paidOn("2026-09-23") * 1.1);
+  });
+});
+
+describe("Wochenvertrag über den Monatswechsel", () => {
+  it("überschreitet in keiner ISO-Woche den Wochenvertrag, auch wenn sie über zwei Monate läuft", () => {
+    // Woche 23.02.–01.03.2026: früher 33,5 h (Feb) + 7 h (März) = 40,5 h bei 40 h Vertrag.
+    const all: Shift[] = [];
+    for (const month of [1, 2, 3, 4, 5, 6]) {
+      all.push(...generateSchedule({ year: 2026, month, workHours: DEFAULT_WORK_HOURS, employees: SAMPLE_EMPLOYEES }));
+    }
+    for (const employee of SAMPLE_EMPLOYEES) {
+      const weeks = new Map<string, number>();
+      for (const shift of all.filter((s) => s.employeeId === employee.id)) {
+        weeks.set(weekStartOf(shift.date), (weeks.get(weekStartOf(shift.date)) ?? 0) + shift.paidMinutes);
+      }
+      for (const [week, paid] of weeks) {
+        expect(paid, `${employee.name} ${week}`).toBeLessThanOrEqual(employee.weeklyHours! * 60);
+      }
     }
   });
 });

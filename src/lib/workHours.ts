@@ -1,7 +1,7 @@
 // ============================================================================
 // Arbeitszeit-Fenster (giờ làm) je Wochentag + Feiertag. Das ist das Fenster,
 // in dem Schichten geplant werden dürfen (Früh am Fenster-Beginn, Spät am
-// Fenster-Ende). Feiertage (Sachsen) werden für Nachfrage & Spätquote wie Sonntag
+// Fenster-Ende). Feiertage (Bayern) werden für die Nachfrage wie Sonntag
 // behandelt, verwenden aber ihr eigenes Zeitfenster.
 // ============================================================================
 
@@ -12,11 +12,9 @@ export type DayWindow = { startMinutes: number; endMinutes: number };
 /**
  * Ein Arbeitstag kann aus MEHREREN Blöcken bestehen.
  *
- * Kylan öffnet Di–Fr zweimal am Tag (11:30–15:00 und 17:00–22:00). Früher gab
- * es je Wochentag nur ein Fenster; damit liess sich die Mittagsschliessung
- * nicht abbilden und der Scheduler plante mitten hinein. Ein Dienst muss immer
- * KOMPLETT in einen Block passen – über die Schliessung hinweg gibt es keine
- * Schicht.
+ * Viet Cuisine öffnet Di–Sa zweimal am Tag (10:30–14:30 und 16:30–22:30). Ein
+ * Dienst muss immer KOMPLETT in einen Block passen – über die
+ * Mittagsschließung hinweg gibt es keine Schicht.
  */
 export type DayBlocks = DayWindow[];
 
@@ -25,7 +23,7 @@ export type WorkHoursConfig = {
   holiday: DayBlocks;
   /**
    * Wochentage, an denen der Laden grundsätzlich geschlossen ist (kein Dienst).
-   * Bei Kylan ist das der Montag. Ein Datum-Override mit eigenen Zeiten kann
+   * Bei Viet Cuisine ist das der Montag. Ein Datum-Override mit eigenen Zeiten kann
    * einen solchen Tag im Einzelfall trotzdem öffnen.
    */
   closedWeekdays: Record<WeekdayKey, boolean>;

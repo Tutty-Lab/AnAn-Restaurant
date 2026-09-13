@@ -74,8 +74,6 @@ function underQuotaReason(emp: Employee | undefined, schedule: Schedule): string
   if (emp.startDate && emp.startDate.startsWith(prefix)) {
     parts.push(`vào làm từ ${shortDate(emp.startDate)} (các ngày trước không tính)`);
   }
-  const vac = (emp.vacationDates ?? []).filter((d) => d.startsWith(prefix)).length;
-  if (vac > 0) parts.push(`nghỉ phép ${vac} ngày trong tháng`);
   if (emp.availableWeekdays && emp.availableWeekdays.length > 0 && emp.availableWeekdays.length < 6) {
     parts.push(`chỉ làm ${emp.availableWeekdays.length} ngày cố định trong tuần`);
   }

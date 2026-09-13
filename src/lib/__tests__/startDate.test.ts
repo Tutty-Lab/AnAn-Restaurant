@@ -28,9 +28,10 @@ describe("Eintritt mitten im Monat (startDate)", () => {
     const openDates = openDatesOf(2026, 9);
     const full = wk("full", 39);
     const late = wk("late", 39, { startDate: "2026-09-07" });
-    // Ohne Startdatum das volle Soll (Sept 2026: 39 × 26 / 6 = 169 h),
-    // mit Startdatum weniger.
-    expect(monthlyTargetMinutesFor(full, openDates)).toBe(169 * 60);
+    // Ohne Startdatum das volle Soll: Sept 2026 = 4 volle Wochen + Di/Mi der
+    // Woche ab 28.9. (Gewicht 2 von 7,5) → 39 × (4 + 2/7,5) = 166,4 h.
+    // Mit Startdatum weniger.
+    expect(monthlyTargetMinutesFor(full, openDates)).toBe(Math.round(39 * 60 * (4 + 2 / 7.5)));
     expect(monthlyTargetMinutesFor(late, openDates)).toBeLessThan(monthlyTargetMinutesFor(full, openDates));
     // Die erste (gesperrte) Woche fehlt komplett: rund eine 39-h-Woche weniger.
     const diff = (monthlyTargetMinutesFor(full, openDates) - monthlyTargetMinutesFor(late, openDates)) / 60;

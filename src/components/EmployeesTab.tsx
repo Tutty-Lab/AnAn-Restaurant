@@ -136,7 +136,8 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         </button>
       </div>
       <p className="text-xs text-slate-500 mb-4">
-        Giờ nhập theo <b>tuần</b>. Tuần đủ 6 ngày giữ đúng giờ hợp đồng; tuần đầu/cuối tháng tính theo ngày.
+        Giờ nhập theo <b>tuần</b>. Tuần đủ giữ đúng giờ hợp đồng; tuần vắt qua 2 tháng chia theo <b>hệ số ngày</b>
+        (VD T3+T4 cuối tháng = 2/7,5 tuần).
         Tháng này tính định mức trên <b>{openDays}</b> ngày, tối đa 6 ngày mỗi tuần. Bấm vào một người để sửa.
       </p>
 

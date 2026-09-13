@@ -39,12 +39,9 @@ const WEEKDAY_ORDER: WeekdayKey[] = [
   "sunday",
 ];
 
-/** Zeile mit zwei Zeit-Feldern (Beginn/Ende) für ein Zeitfenster. */
 /**
- * Eine Zeile je Wochentag – mit BELIEBIG VIELEN Blöcken.
- *
- * Kylan öffnet Di–Fr zweimal am Tag. Vorher gab es hier genau ein Paar
- * Uhrzeiten; die Mittagsschliessung liess sich damit gar nicht eintragen.
+ * Eine Zeile je Wochentag – mit BELIEBIG VIELEN Blöcken, damit sich eine
+ * Mittagsschließung (Di–Sa 14:30–16:30) eintragen lässt.
  */
 function BlockRow({
   label,
@@ -205,7 +202,7 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
     [schedule.dateOverrides],
   );
 
-  // Feiertage (Sachsen) im gewählten Monat.
+  // Feiertage (Bayern) im gewählten Monat.
   const holidaysThisMonth = useMemo(() => {
     const names = publicHolidayNames(schedule.year);
     const monthDates = new Set(datesOfMonth(schedule.year, schedule.month));
