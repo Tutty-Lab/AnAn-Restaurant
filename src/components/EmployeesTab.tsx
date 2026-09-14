@@ -364,9 +364,9 @@ function EmployeeSheet({
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
               <span>
                 Nâng cao
-                <span className="block text-xs font-normal text-slate-500">
-                  {advancedSummary(d) ?? "Ca cố định, ngày làm trong tuần, ngày vào làm – chưa đặt"}
-                </span>
+                {advancedSummary(d) && (
+                  <span className="block text-xs font-normal text-slate-500">{advancedSummary(d)}</span>
+                )}
               </span>
               <span className="text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
             </summary>
@@ -379,12 +379,7 @@ function EmployeeSheet({
                 checked={d.fixed}
                 onChange={(e) => set("fixed", e.target.checked)}
               />
-              <span>
-                Ca cố định
-                <span className="block text-xs text-slate-400">
-                  Chỉ làm đúng khung giờ này (đặt giờ tuỳ ý bên dưới).
-                </span>
-              </span>
+              <span>Ca cố định</span>
             </label>
 
             {d.fixed && (

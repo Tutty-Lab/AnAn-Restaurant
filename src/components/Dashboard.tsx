@@ -138,13 +138,6 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
         </div>
       )}
 
-      {/* Thành công: gọn một dòng, không đổ danh sách ra màn hình. */}
-      {!notGenerated && fehler.length === 0 && warnungen.length === 0 && peakGaps.length === 0 && (
-        <div className="mt-2 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-3 py-2">
-          ✓ Lịch hợp lệ — tất cả giờ định mức đã được phân bổ chính xác.
-        </div>
-      )}
-
       {/* Lỗi: gộp sau nút (i). */}
       {fehler.length > 0 && (
         <InfoNote tone="error" summary={`${fehler.length} lỗi cần sửa trước khi dùng lịch`}>

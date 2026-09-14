@@ -142,8 +142,7 @@ function BlockRow({
 }
 
 export function SettingsTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, updateMeta, upsertOverride, removeOverride, changePassword, hasOwnPassword } =
-    store;
+  const { schedule, updateMeta, upsertOverride, removeOverride, changePassword } = store;
   // Checklist G: chỉ 2026–2030. Năm cũ ngoài khoảng (dữ liệu đã lưu) vẫn hiện để
   // ô chọn không trống, nhưng không chọn lại được và không tạo/in lịch được.
   const years = isScheduleYearAllowed(schedule.year) ? SCHEDULE_YEARS : [schedule.year, ...SCHEDULE_YEARS];
@@ -272,13 +271,7 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
       {/* „Nâng cao": khung giờ từng thứ ít khi đổi – thu gọn mặc định, bấm để mở. */}
       <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-4 sm:p-5 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
-          <span>
-            <h2 className="text-base font-semibold text-slate-900">Nâng cao · Giờ làm theo ngày</h2>
-            <span className="block text-xs text-slate-500">
-              Mở {WEEKDAY_ORDER.filter((k) => !schedule.workHours.closedWeekdays?.[k]).length} ngày/tuần · khung
-              giờ từng thứ và ngày lễ. Bấm để mở.
-            </span>
-          </span>
+          <h2 className="text-base font-semibold text-slate-900">Nâng cao · Giờ làm theo ngày</h2>
           <span className="text-lg text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
         </summary>
         <div className="border-t border-slate-100 p-4 sm:p-5">
@@ -488,7 +481,7 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
         )}
       </section>
 
-      <PasswordSection hasOwnPassword={hasOwnPassword} onChange={changePassword} />
+      <PasswordSection onChange={changePassword} />
     </div>
   );
 }
@@ -501,10 +494,8 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
  * gerade vor dem offenen Tablet steht, die Filiale aussperren kann.
  */
 function PasswordSection({
-  hasOwnPassword,
   onChange,
 }: {
-  hasOwnPassword: boolean;
   onChange: (alt: string, neu: string) => Promise<string | null>;
 }) {
   const [alt, setAlt] = useState("");
@@ -538,15 +529,6 @@ function PasswordSection({
   return (
     <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
       <h2 className="text-base font-semibold text-slate-900">Mật khẩu vào ứng dụng</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Mật khẩu này chỉ để che mắt người ngoài khi máy để mở ở quán, không phải bảo mật
-        thật. Đổi ở đây thì mọi máy của quán đều dùng mật khẩu mới.
-      </p>
-      {!hasOwnPassword && (
-        <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          Quán đang dùng <b>mật khẩu mặc định</b>. Nên đổi sang mật khẩu riêng.
-        </p>
-      )}
 
       <form onSubmit={absenden} className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
         <label className="flex flex-col sm:w-44">
