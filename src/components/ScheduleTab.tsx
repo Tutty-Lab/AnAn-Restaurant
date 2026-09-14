@@ -415,7 +415,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
             <tbody>
               {schedule.employees.map((emp) => {
                 const sum = summaryByEmp.get(emp.id);
-                const sollMin = monthlyTargetMinutesFor(emp, openDates);
+                const sollMin = monthlyTargetMinutesFor(emp, openDates, schedule.workHours);
                 const diff = sum?.diffMinutes ?? -sollMin;
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/50">

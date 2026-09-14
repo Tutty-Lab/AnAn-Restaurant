@@ -433,7 +433,7 @@ export function generateWeeklySchedule(input: WeeklyInput, existing: Shift[] = [
   // Tagesgewicht (contract.ts) – Randtage am Monatsende werden nicht überbesetzt.
   // Ohne Wochenvertrag: Monats-Soll nach offenen Tagen (ab Eintritt) verteilt.
   const budgets = new Map(employees.map((employee) => {
-    if (employee.weeklyHours != null) return [employee.id, weeklyBudgetMinutes(employee, openDates, monthBounds)] as const;
+    if (employee.weeklyHours != null) return [employee.id, weeklyBudgetMinutes(employee, openDates, monthBounds, input.workHours)] as const;
     const empWeekInfo = weekInfo.map((week) => ({
       weekStart: week.weekStart,
       openDays: (byWeek.get(week.weekStart) ?? []).filter(

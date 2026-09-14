@@ -94,7 +94,7 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
   const byId = new Map(schedule.employees.map((e) => [e.id, e] as const));
   // Wochenverträge (weeklyHours) haben targetMinutes = 0; das Monats-Soll wird
   // erst über die offenen Tage abgeleitet (contract.ts), genau wie in der Prüfung.
-  const targetMin = schedule.employees.reduce((s, e) => s + monthlyTargetMinutesFor(e, openDates), 0);
+  const targetMin = schedule.employees.reduce((s, e) => s + monthlyTargetMinutesFor(e, openDates, schedule.workHours), 0);
   const plannedMin = schedule.shifts.reduce((s, x) => s + x.paidMinutes, 0);
   const uncoveredMin = Math.max(0, targetMin - plannedMin);
   const notGenerated = schedule.shifts.length === 0;

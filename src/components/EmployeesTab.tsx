@@ -6,6 +6,7 @@ import { WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
 import { monthlyTargetMinutesFor } from "../lib/contract";
 import { employmentLabelVi, employmentShortVi } from "../lib/employment";
 import { minutesToShortHours, minutesToTime, timeToMinutes } from "../lib/time";
+import type { WorkHoursConfig } from "../lib/workHours";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
@@ -153,7 +154,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
       </div>
       <p className="text-xs text-slate-500 mb-4">
         Giờ nhập theo <b>tuần</b>. Tuần đủ giữ đúng giờ hợp đồng; tuần vắt qua 2 tháng chia theo <b>hệ số ngày</b>
-        (VD T3+T4 cuối tháng = 2/7,5 tuần).
+        (VD T3+T4 cuối tháng ≈ 26% tuần).
         Tháng này tính định mức trên <b>{openDays}</b> ngày, tối đa 6 ngày mỗi tuần. Bấm vào một người để sửa.
       </p>
 
@@ -175,7 +176,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
                 onClick={() => setOffen(emp.id)}
                 className="w-full text-left rounded-lg border border-slate-200 p-3 flex items-center gap-3 hover:bg-slate-50 active:bg-slate-100 transition-colors"
               >
-                <EmployeeSummaryRow emp={emp} openDates={openDates} />
+                <EmployeeSummaryRow emp={emp} openDates={openDates} workHours={schedule.workHours} />
                 <span className="text-slate-300 text-lg leading-none">›</span>
               </button>
             </li>
@@ -198,6 +199,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
           key={bearbeitet?.id ?? "new"}
           employee={bearbeitet}
           openDates={openDates}
+          workHours={schedule.workHours}
           onClose={() => setOffen(null)}
           onSave={(felder) => {
             if (bearbeitet) updateEmployee(bearbeitet.id, felder);
@@ -222,11 +224,13 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
 function EmployeeSummaryRow({
   emp,
   openDates,
+  workHours,
 }: {
   emp: Employee;
   openDates: readonly string[];
+  workHours: WorkHoursConfig;
 }) {
-  const monatMin = monthlyTargetMinutesFor(emp, openDates);
+  const monatMin = monthlyTargetMinutesFor(emp, openDates, workHours);
   const monatH = monatMin / 60;
   const info = splitInfo(monatH, emp.employmentType);
 
@@ -261,12 +265,14 @@ function EmployeeSummaryRow({
 function EmployeeSheet({
   employee,
   openDates,
+  workHours,
   onClose,
   onSave,
   onDelete,
 }: {
   employee?: Employee;
   openDates: readonly string[];
+  workHours: WorkHoursConfig;
   onClose: () => void;
   onSave: (felder: Omit<Employee, "id">) => void;
   onDelete?: () => void;
@@ -277,7 +283,7 @@ function EmployeeSheet({
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setD((prev) => ({ ...prev, [k]: v }));
 
-  const monatMin = monthlyTargetMinutesFor({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDates);
+  const monatMin = monthlyTargetMinutesFor({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDates, workHours);
   const monatH = monatMin / 60;
   const info = splitInfo(monatH, d.employmentType);
 

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { Schedule, Shift } from "../types";
-import { WEEKDAY_SHORT_VI } from "../lib/demand";
-import { publicHolidays } from "../lib/holidays";
+import { parseIsoDate, WEEKDAY_SHORT_VI, weekdayKeyOf } from "../lib/demand";
+import { publicHolidayNames, publicHolidays } from "../lib/holidays";
 import { coveragePoints, staffingWindows, workingAt } from "../lib/staffing";
 import { effectiveWeekdayKey, resolveDay } from "../lib/workHours";
 import { minutesToTime } from "../lib/time";
@@ -41,6 +41,7 @@ function slotBackground(slot: Slot): string {
 }
 
 export function CoverageChart({ schedule, dates }: { schedule: Schedule; dates: string[] }) {
+  const holidayNames = useMemo(() => publicHolidayNames(schedule.year), [schedule.year]);
   const rows = useMemo(() => {
     const holidays = publicHolidays(schedule.year);
     const overrides = Object.fromEntries(schedule.dateOverrides.map((override) => [override.date, override]));
@@ -48,6 +49,7 @@ export function CoverageChart({ schedule, dates }: { schedule: Schedule; dates: 
       const day = resolveDay(schedule.workHours, date, holidays, overrides);
       if (day.closed) return { date, slots: [] as Slot[] };
       const shifts = schedule.shifts.filter((shift) => shift.date === date);
+      // Ngày lễ mở cửa được xếp như Chủ nhật – khung yêu cầu theo CN.
       const windows = staffingWindows(day.blocks, effectiveWeekdayKey(date, holidays));
       const slots: Slot[] = [];
       for (let from = day.window.startMinutes; from < day.window.endMinutes; from += SLOT) {
@@ -87,11 +89,20 @@ export function CoverageChart({ schedule, dates }: { schedule: Schedule; dates: 
       </div>
 
       {rows.map(({ date, slots }) => {
-        const weekday = WEEKDAY_SHORT_VI[effectiveWeekdayKey(date, publicHolidays(schedule.year))];
+        // Nhãn = thứ THẬT của ngày (03.10.2026 là T7), không phải thứ dùng để xếp lịch.
+        const weekday = WEEKDAY_SHORT_VI[weekdayKeyOf(parseIsoDate(date))];
+        const holiday = holidayNames.get(date);
         return (
           <section key={date} className="rounded-lg border border-slate-200 bg-white shadow-sm" aria-label={`Độ phủ ${date}`}>
             <header className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-              <h3 className="text-sm font-semibold text-slate-900">{date.split("-").reverse().join(".")} · {weekday}</h3>
+              <h3 className="text-sm font-semibold text-slate-900">
+                {date.split("-").reverse().join(".")} · {weekday}
+                {holiday && (
+                  <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                    Lễ: {holiday} (xếp như CN)
+                  </span>
+                )}
+              </h3>
               {slots.length > 0 && <span className="text-xs text-slate-500">Thực tế / yêu cầu</span>}
             </header>
             {slots.length === 0 ? (

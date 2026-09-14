@@ -9,6 +9,7 @@ import { maxConsecutiveRun } from "./consecutive";
 import { weekStartOf } from "./weeks";
 import { validPause } from "./staffing";
 import { mayWorkOn } from "./availability";
+import type { WorkHoursConfig } from "./workHours";
 
 export type ValidationError = {
   employeeId?: string;
@@ -64,13 +65,15 @@ export function validateSchedule(
    * (startDate) korrekt und löst keine falsche „zu wenig geplant"-Warnung aus.
    */
   openDays?: number | readonly string[],
+  /** Wochenplan des Ladens – gleicher Faktor für das Monats-Soll wie im Scheduler. */
+  workHours?: WorkHoursConfig,
 ): ValidationResult {
   const errors: ValidationError[] = [];
   const sollOf = (e: Employee): number => {
     if (openDays == null) return e.targetMinutes;
     return typeof openDays === "number"
       ? monthlyTargetMinutes(e, openDays)
-      : monthlyTargetMinutesFor(e, openDays);
+      : monthlyTargetMinutesFor(e, openDays, workHours);
   };
   const employeeById = new Map(employees.map((e) => [e.id, e] as const));
 

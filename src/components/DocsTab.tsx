@@ -187,7 +187,7 @@ export function DocsTab() {
         <ul className="list-disc space-y-1 pl-5">
           <li>CN mở 11,5h liền nhận nhiều giờ công hơn T6/T7 mở 10h, nên <b>cùng mật độ</b> (~7,7 giờ công mỗi giờ mở với 12 người).</li>
           <li>Các ngày cùng hệ số và cùng giờ mở (T3, T4, T5) phải có <b>cùng lượng người</b> – thuật toán không có ưu tiên ngẫu nhiên theo người hay theo thứ.</li>
-          <li><b>Tuần vắt qua 2 tháng</b> chia giờ hợp đồng theo hệ số của thứ, không theo số ngày: T3+T4 cuối tháng mang 2/7,5 tuần (39h → 10h), T5–CN đầu tháng sau mang phần còn lại (29h). Định mức tháng vì vậy đổi theo lịch và có thể lệch dưới 30′ do làm tròn.</li>
+          <li><b>Tuần vắt qua 2 tháng</b> chia giờ hợp đồng theo cùng hệ số × giờ mở như trên, không theo số ngày: T3+T4 cuối tháng mang ≈ 26% tuần (39h → 10h), T5–CN đầu tháng sau mang phần còn lại (29h); một Chủ nhật lẻ đầu tháng mang ≈ 22% tuần, đúng bằng CN của tuần đủ. Định mức tháng vì vậy đổi theo lịch và có thể lệch dưới 30′ do làm tròn.</li>
         </ul>
       </Section>
 
