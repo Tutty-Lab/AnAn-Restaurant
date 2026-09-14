@@ -9,13 +9,15 @@ import { createClient } from "@supabase/supabase-js";
 /**
  * Kennung dieser Filiale = Schlüssel der Zeile in store_data.
  *
+ * TEMPLATE: eigene Zeile "template" – NIE die ID eines echten Ladens, sonst
+ * überschreibt die Template-Instanz dessen Dienstpläne (alle Filialen teilen
+ * dieselbe Datenbank). Wer aus dem Template einen neuen Laden anlegt, ändert
+ * GENAU diese Zeile auf die ID des Ladens (z. B. "missdo").
+ *
  * Per VITE_STORE_ID überschreibbar, damit man lokal gegen eine Testzeile
- * arbeiten kann. Ohne diese Möglichkeit zeigt jede lokale Entwicklungsumgebung
- * zwangsläufig auf die Produktivdaten der Filiale – und ein Klick beim Testen
- * ändert dann echte Dienstpläne. In Produktion ist die Variable nicht gesetzt,
- * dort gilt weiterhin "vietcuisine".
+ * arbeiten kann.
  */
-export const STORE_ID = import.meta.env.VITE_STORE_ID || "vietcuisine";
+export const STORE_ID = import.meta.env.VITE_STORE_ID || "template";
 
 // Beide Schreibweisen akzeptieren: VITE_* (selbst gesetzt) und NEXT_PUBLIC_*
 // (so legt die Vercel-Supabase-Integration die öffentlichen Schlüssel an).
