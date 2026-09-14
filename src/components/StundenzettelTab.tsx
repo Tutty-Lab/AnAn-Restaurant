@@ -4,7 +4,9 @@ import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Employee } from "../types";
 import { StundenzettelPage } from "./StundenzettelPage";
 import { SchedulePrintPage, type SchedulePrintLayout } from "./SchedulePrintPage";
-import { elementsToPdf, safeFileName } from "../lib/pdf";
+import { elementsToPdf, safeFileName, sharePdf } from "../lib/pdf";
+import { chromeIntentUrl, detectInAppBrowser } from "../lib/inAppBrowser";
+import { isScheduleYearAllowed, SCHEDULE_YEAR_RANGE_LABEL } from "../lib/years";
 import { weeksOfMonth } from "../lib/weeks";
 import { datesOfMonth } from "../lib/demand";
 import { monthLabel } from "../lib/shiftOps";
@@ -38,6 +40,14 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     return false;
   }, [schedule.year, schedule.shifts]);
 
+  // Trình duyệt nhúng (Zalo, Messenger, Facebook …) không lưu được file tải thẳng.
+  const inApp = useMemo(
+    () => detectInAppBrowser(typeof navigator === "undefined" ? "" : navigator.userAgent),
+    [],
+  );
+  const pageUrl = typeof window === "undefined" ? "" : window.location.href;
+  const chromeUrl = inApp.platform === "android" ? chromeIntentUrl(pageUrl) : null;
+
   // ── Auswahl: WER (eine Person oder der ganze Laden) und WAS ─────────────
   // who: "all" = ganzer Laden, sonst eine employeeId.
   const [who, setWho] = useState<string>("all");
@@ -56,6 +66,12 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<string>("");
   const pdfStage = useRef<HTMLDivElement>(null);
+  /** Lỗi tạo PDF – hiện ngay trên trang (alert bị trình duyệt nhúng chặn). */
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  /** Trình duyệt nhúng: PDF đã tạo xong, chờ người dùng bấm Lưu / Chia sẻ. */
+  const [readyPdf, setReadyPdf] = useState<{ blob: Blob; filename: string } | null>(null);
+  const [shareNote, setShareNote] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Zeitraum für den Stundenzettel-Ausdruck: gesetzt => Wochen-Zettel (nur diese
   // Tage), leer => ganzer Monat.
@@ -78,6 +94,22 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   const employeeIds = who === "all" ? undefined : [who];
   const whoTag = who === "all" ? "tat_ca" : safeFileName(previewEmployee?.name ?? who);
 
+  const startPdf = () => {
+    setPdfBusy(true);
+    setPdfError(null);
+    setReadyPdf(null);
+    setShareNote(null);
+  };
+  const progress = (current: number, total: number) => {
+    if (total > 1) setPdfProgress(`${current}/${total}`);
+  };
+  /** Rechner/Chrome/Safari: đã tải thẳng. Trình duyệt nhúng: giữ file để bấm Lưu / Chia sẻ. */
+  const finishPdf = (blob: Blob | null, filename: string) => {
+    if (inApp.inApp && blob) setReadyPdf({ blob, filename });
+  };
+  const errorText = (err: unknown) =>
+    `Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`;
+
   /**
    * PDF: các trang phải được render thật (không display:none) thì html2canvas
    * mới chụp được – vì vậy dùng "sân khấu" nằm ngoài màn hình.
@@ -88,7 +120,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
     sz?: { dates?: string[]; label?: string },
   ) {
     if (list.length === 0 || pdfBusy) return;
-    setPdfBusy(true);
+    startPdf();
     setPdfProgress(list.length > 1 ? `1/${list.length}` : "");
     flushSync(() => {
       setPdfSchedule(null);
@@ -100,13 +132,9 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
       const pages = Array.from(
         pdfStage.current?.querySelectorAll<HTMLElement>(".stundenzettel-page") ?? [],
       );
-      await elementsToPdf(pages, filename, (current, total) => {
-        if (total > 1) {
-          setPdfProgress(`${current}/${total}`);
-        }
-      });
+      finishPdf(await elementsToPdf(pages, filename, progress, { download: !inApp.inApp }), filename);
     } catch (err) {
-      alert(`Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`);
+      setPdfError(errorText(err));
     } finally {
       setPdfList(null);
       setPdfBusy(false);
@@ -117,7 +145,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
   /** PDF eines Dienstplans (Monat oder Woche). Eine Woche sperrt den Monat. */
   async function doPdfSchedule(range: ScheduleRange, filename: string) {
     if (range.dates.length === 0 || pdfBusy) return;
-    setPdfBusy(true);
+    startPdf();
     setPdfProgress("");
     flushSync(() => {
       setPdfList(null);
@@ -127,20 +155,74 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
       const pages = Array.from(
         pdfStage.current?.querySelectorAll<HTMLElement>(".stundenzettel-page") ?? [],
       );
-      await elementsToPdf(pages, filename, (current, total) => {
-        if (total > 1) {
-          setPdfProgress(`${current}/${total}`);
-        }
-      });
+      finishPdf(await elementsToPdf(pages, filename, progress, { download: !inApp.inApp }), filename);
       if (range.weekStart) markWeekPrinted(range.weekStart);
     } catch (err) {
-      alert(`Không tạo được PDF: ${err instanceof Error ? err.message : String(err)}`);
+      setPdfError(errorText(err));
     } finally {
       setPdfSchedule(null);
       setPdfBusy(false);
       setPdfProgress("");
     }
   }
+
+  /** Gọi trực tiếp trong lúc bấm – bảng Chia sẻ cần thao tác người dùng còn "mới". */
+  async function onSharePdf() {
+    if (!readyPdf) return;
+    const result = await sharePdf(readyPdf.blob, readyPdf.filename);
+    if (result === "shared") {
+      setReadyPdf(null);
+      setShareNote(null);
+    } else if (result !== "cancelled") {
+      setShareNote(
+        `${inApp.name ?? "Trình duyệt này"} không cho lưu hoặc chia sẻ file. Hãy mở app bằng trình duyệt (Chrome/Safari) rồi xuất lại.`,
+      );
+    }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(pageUrl);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setShareNote("Không sao chép tự động được – hãy giữ tay vào ô link bên dưới để sao chép.");
+    }
+  }
+
+  const openInBrowserHelp = (
+    <div className="mt-2 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {chromeUrl && (
+          <a
+            href={chromeUrl}
+            className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+          >
+            Mở bằng Chrome
+          </a>
+        )}
+        <button
+          type="button"
+          onClick={() => void copyLink()}
+          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          {copied ? "Đã sao chép link" : "Sao chép link"}
+        </button>
+      </div>
+      <p className="text-xs">
+        {inApp.platform === "ios"
+          ? "Hoặc bấm ⋯ ở góc trên → Mở trong Safari (hoặc trình duyệt), rồi xuất PDF lại."
+          : "Hoặc bấm ⋮ ở góc trên → Mở bằng trình duyệt, rồi xuất PDF lại."}
+      </p>
+      <input
+        readOnly
+        value={pageUrl}
+        onFocus={(e) => e.currentTarget.select()}
+        className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-600"
+        aria-label="Link của app"
+      />
+    </div>
+  );
 
   // Was genau ist gewählt? Baut den passenden Ausdruck-Auftrag.
   function scheduleRangeFor(target: string): ScheduleRange | null {
@@ -214,6 +296,19 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
         <div className="rounded-lg border border-slate-200 bg-white p-3 mb-4">
           <div className="text-sm font-medium text-slate-700 mb-2">Xuất file PDF</div>
 
+          {inApp.inApp && !readyPdf && (
+            <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="font-semibold">
+                Bạn đang mở app trong {inApp.name}
+              </div>
+              <p className="mt-0.5 text-xs">
+                Trình duyệt trong {inApp.name} không tải được file PDF thẳng về máy. Bạn vẫn có thể tạo
+                PDF rồi bấm <b>Lưu / Chia sẻ PDF</b>; nếu máy không cho, hãy mở app bằng trình duyệt.
+              </p>
+              {openInBrowserHelp}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-end gap-3">
             {/* WER */}
             <label className="flex flex-col gap-1">
@@ -262,11 +357,11 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             {/* Hành động */}
             <div className="flex flex-wrap items-center gap-2">
               <button
-                disabled={pdfBusy || !hasSchedule}
+                disabled={pdfBusy || !hasSchedule || !isScheduleYearAllowed(schedule.year)}
                 onClick={onPdf}
                 className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40 shadow-sm"
               >
-                {pdfBusy ? `Đang tạo PDF ${pdfProgress ? `(${pdfProgress})` : "…"}` : "⬇ Xuất PDF"}
+                {pdfBusy ? `Đang tạo PDF ${pdfProgress ? `(${pdfProgress})` : "…"}` : "Xuất PDF"}
               </button>
               <button
                 type="button"
@@ -278,7 +373,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                 className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 shadow-sm"
                 title="Tạo lại lịch mới theo quy tắc ca liền Chủ nhật"
               >
-                🔄 Tạo lại lịch
+                Tạo lại lịch
               </button>
               {pdfBusy && (
                 <span className="text-sm text-slate-500">
@@ -288,14 +383,58 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             </div>
           </div>
 
+          {pdfError && (
+            <div role="alert" className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
+              <span>{pdfError}</span>
+              <button type="button" onClick={() => setPdfError(null)} className="text-rose-700 hover:text-rose-900" aria-label="Đóng">
+                ✕
+              </button>
+            </div>
+          )}
+
+          {readyPdf && (
+            <div role="status" className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-semibold">PDF đã sẵn sàng</div>
+                  <div className="text-xs break-all">{readyPdf.filename}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setReadyPdf(null); setShareNote(null); }}
+                  className="text-emerald-800 hover:text-emerald-950"
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => void onSharePdf()}
+                className="mt-2 rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+              >
+                Lưu / Chia sẻ PDF
+              </button>
+              <p className="mt-1 text-xs">
+                Trong bảng chia sẻ chọn <b>Lưu vào Tệp</b> (iPhone) hoặc gửi qua Zalo/Mail.
+              </p>
+              {shareNote && (
+                <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">
+                  <div className="text-sm">{shareNote}</div>
+                  {openInBrowserHelp}
+                </div>
+              )}
+            </div>
+          )}
+
           {hasSplitSunday && (
             <div className="mt-3 rounded-lg bg-blue-50 border border-blue-300 p-3 text-blue-950 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
               <div>
                 <div className="font-semibold flex items-center gap-1.5 text-blue-900">
-                  <span>💡 Chủ nhật đang bị chia 2 ca</span>
+                  <span>Chủ nhật đang bị chia 2 ca</span>
                 </div>
                 <p className="text-xs text-blue-800 mt-0.5">
-                  Chủ nhật/ngày lễ là <b>ca liền</b> (xem tab Tài liệu). Lịch này có người bị chia ca sáng/chiều vào Chủ nhật — bấm nút bên cạnh để tạo lại.
+                  Chủ nhật/ngày lễ là <b>ca liền</b> (xem mục Tài liệu). Lịch này có người bị chia ca sáng/chiều vào Chủ nhật — bấm nút bên cạnh để tạo lại.
                 </p>
               </div>
               <button
@@ -306,7 +445,7 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
                 }}
                 className="whitespace-nowrap rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 active:bg-blue-800 shadow"
               >
-                🔄 Cập nhật lại lịch chuẩn ngay
+                Cập nhật lại lịch chuẩn ngay
               </button>
             </div>
           )}
@@ -316,13 +455,18 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
               Chưa có lịch. Sang tab „Lịch làm việc" để tạo.
             </p>
           )}
+          {!isScheduleYearAllowed(schedule.year) && (
+            <p role="alert" className="mt-2 text-sm text-rose-700">
+              Chỉ xuất lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}. Tạo lịch cho năm trong khoảng này ở tab „Lịch làm việc".
+            </p>
+          )}
 
           <p className="mt-2 text-xs text-slate-500">
             <b>Bảng chấm công (Stundenzettel)</b> theo mẫu tiếng Đức để nộp — một tờ mỗi người, chọn
             cả tháng hoặc từng tuần. <b>Lịch làm việc</b> là lịch treo ở quán (cả tháng hoặc từng
             tuần, cho cả quán hoặc một người). <b>Xuất lịch một tuần sẽ khóa lịch tháng</b> để bản
-            đã xuất luôn khớp với hệ thống. Xuất PDF tải thẳng file về máy dưới dạng tệp PDF (tối ưu
-            cho iPhone, iPad, Safari, Chrome).
+            đã xuất luôn khớp với hệ thống. Trên máy tính, Chrome và Safari, PDF tải thẳng về máy; mở
+            app từ link trong Zalo/Messenger/Facebook thì bấm <b>Lưu / Chia sẻ PDF</b> sau khi tạo.
           </p>
 
           {isLocked && (

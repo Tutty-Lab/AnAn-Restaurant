@@ -20,6 +20,7 @@ import { monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "../lib/contract"
 import { StaffingReport } from "./StaffingReport";
 import { PauseLabel } from "./PauseLabel";
 import { CoverageChart } from "./CoverageChart";
+import { GenerateScheduleDialog } from "./GenerateScheduleDialog";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -37,9 +38,9 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // dort sitzt alles, was Papier erzeugt.
   const { schedule, validation, generate, genError, genStamp, isLocked, openDates } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
-  // Zweiter Klick, um einen gesperrten (gedruckten) Monat neu zu erzeugen –
-  // ohne native Rückfrage, die manche In-App-Browser verschlucken.
-  const [confirmRegen, setConfirmRegen] = useState(false);
+  // Popup „Tạo lịch làm việc" (chọn tháng/năm). Không dùng hộp thoại gốc –
+  // trình duyệt nhúng (Messenger, Zalo) hay nuốt nó.
+  const [genDialogOpen, setGenDialogOpen] = useState(false);
   // Kurze Erfolgsmeldung nach dem Erzeugen. genStamp steigt bei jedem
   // erfolgreichen Lauf; der Effekt liest DANACH die (frische) Prüfung aus.
   const [toast, setToast] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         ? `Đã tạo lịch — nhưng còn ${fehler} lỗi, xem chi tiết ở phần trạng thái.`
         : warn > 0
           ? `✓ Đã tạo lịch mới (còn ${warn} cảnh báo thiếu giờ — bấm (i) để xem).`
-          : "✓ Đã tạo lịch mới — hợp lệ, giờ chia đều cho mọi người.",
+          : "✓ Đã tạo lịch mới — hợp lệ, giờ chia theo hệ số ngày.",
     );
     const t = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(t);
@@ -160,31 +161,36 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       {/* Thanh thao tác */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
-          onClick={() => {
-            // Gesperrter Monat: erst nachfragen, dann neu erzeugen (die
-            // Erzeugung hebt die Sperre auf und löscht die Wochen-Häkchen).
-            if (isLocked && !confirmRegen) {
-              setConfirmRegen(true);
-              return;
-            }
-            generate();
-            setConfirmRegen(false);
-          }}
+          type="button"
+          onClick={() => setGenDialogOpen(true)}
           disabled={!hasEmployees}
           className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
         >
           Tạo lịch làm việc
         </button>
-        {confirmRegen && (
-          <button
-            onClick={() => setConfirmRegen(false)}
-            className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            Huỷ
-          </button>
-        )}
         <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
       </div>
+
+      {/* Popup chọn tháng/năm – cảnh báo thay lịch tháng khác và mở khóa tháng đã in nằm trong đó. */}
+      {genDialogOpen && (
+        <GenerateScheduleDialog
+          currentYear={schedule.year}
+          currentMonth={schedule.month}
+          hasShifts={schedule.shifts.length > 0}
+          isLocked={isLocked}
+          onClose={() => setGenDialogOpen(false)}
+          onConfirm={(target) => {
+            setGenDialogOpen(false);
+            generate(target);
+          }}
+        />
+      )}
+
+      {genError && (
+        <div role="alert" className="mb-3 rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+          {genError}
+        </div>
+      )}
 
       {/* Erfolgsmeldung nach „Tạo lịch". Verschwindet nach ein paar Sekunden;
           Details zu Warnungen/Fehlern stehen aufklappbar oben im Dashboard. */}
@@ -213,30 +219,19 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         <div className="mb-3 rounded-lg bg-blue-50 border border-blue-300 p-3 text-blue-950 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
           <div>
             <div className="font-semibold flex items-center gap-1.5 text-blue-900">
-              <span>💡 Chủ nhật đang bị chia 2 ca</span>
+              <span>Chủ nhật đang bị chia 2 ca</span>
             </div>
             <p className="text-xs text-blue-800 mt-0.5">
-              Chủ nhật/ngày lễ là <b>ca liền</b> (xem tab Tài liệu). Lịch này có người bị chia ca sáng/chiều vào Chủ nhật — bấm nút bên cạnh để tạo lại.
+              Chủ nhật/ngày lễ là <b>ca liền</b> (xem mục Tài liệu). Lịch này có người bị chia ca sáng/chiều vào Chủ nhật — bấm nút bên cạnh để tạo lại.
             </p>
           </div>
           <button
             type="button"
-            onClick={() => {
-              generate();
-              setConfirmRegen(false);
-            }}
+            onClick={() => generate()}
             className="whitespace-nowrap rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 active:bg-blue-800 shadow"
           >
-            🔄 Cập nhật lại lịch chuẩn ngay
+            Cập nhật lại lịch chuẩn ngay
           </button>
-        </div>
-      )}
-
-      {/* Rückfrage vor dem Neu-Erzeugen eines gedruckten Monats. */}
-      {isLocked && confirmRegen && (
-        <div className="mb-3 rounded bg-amber-50 border border-amber-300 text-amber-900 text-sm px-3 py-2">
-          Tháng này đã in &amp; khóa. <b>Tạo lại lịch sẽ mở khóa tháng và xóa dấu các tuần đã in</b> —
-          bản đã treo ở quán sẽ không còn khớp. Bấm lại <b>„Tạo lịch làm việc"</b> để tiếp tục.
         </div>
       )}
 
@@ -245,7 +240,7 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
         "Bang cham cong". Ohne diesen Hinweis klickt man hier auf eine Zelle
         und nichts passiert, ohne zu erfahren warum.
       */}
-      {isLocked && !confirmRegen && (
+      {isLocked && (
         <div className="mb-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">
           Lịch tháng này đã khóa vì đã in
           {schedule.lockedAt && ` lúc ${new Date(schedule.lockedAt).toLocaleString("vi-VN")}`} — chỉ

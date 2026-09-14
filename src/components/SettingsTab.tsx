@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import { minutesToTime, timeToMinutes } from "../lib/time";
 import { MONTH_NAMES_VI } from "../lib/dateFormat";
+import { isScheduleYearAllowed, SCHEDULE_YEARS, SCHEDULE_YEAR_RANGE_LABEL } from "../lib/years";
 import {
   WEEKDAY_LABELS_VI,
   WEEKDAY_SHORT_VI,
@@ -143,7 +144,9 @@ function BlockRow({
 export function SettingsTab({ store }: { store: UseScheduleReturn }) {
   const { schedule, updateMeta, upsertOverride, removeOverride, changePassword, hasOwnPassword } =
     store;
-  const years = Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 1 + i);
+  // Checklist G: chỉ 2026–2030. Năm cũ ngoài khoảng (dữ liệu đã lưu) vẫn hiện để
+  // ô chọn không trống, nhưng không chọn lại được và không tạo/in lịch được.
+  const years = isScheduleYearAllowed(schedule.year) ? SCHEDULE_YEARS : [schedule.year, ...SCHEDULE_YEARS];
 
   // ---- Ngày đặc biệt (Ausnahmen) ----
   const monthDates = useMemo(
@@ -253,17 +256,32 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
               onChange={(e) => updateMeta({ year: Number(e.target.value) })}
             >
               {years.map((y) => (
-                <option key={y} value={y}>
+                <option key={y} value={y} disabled={!isScheduleYearAllowed(y)}>
                   {y}
+                  {isScheduleYearAllowed(y) ? "" : " (không hỗ trợ)"}
                 </option>
               ))}
             </select>
+            <span className={`mt-1 block text-xs ${isScheduleYearAllowed(schedule.year) ? "text-slate-500" : "text-rose-700"}`}>
+              Chỉ xếp và in lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}.
+            </span>
           </Field>
         </div>
       </section>
 
-      <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-slate-900 mb-1">Giờ làm theo ngày</h2>
+      {/* „Nâng cao": khung giờ từng thứ ít khi đổi – thu gọn mặc định, bấm để mở. */}
+      <details className="group rounded-lg bg-white border border-slate-200 shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-4 sm:p-5 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+          <span>
+            <h2 className="text-base font-semibold text-slate-900">Nâng cao · Giờ làm theo ngày</h2>
+            <span className="block text-xs text-slate-500">
+              Mở {WEEKDAY_ORDER.filter((k) => !schedule.workHours.closedWeekdays?.[k]).length} ngày/tuần · khung
+              giờ từng thứ và ngày lễ. Bấm để mở.
+            </span>
+          </span>
+          <span className="text-lg text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
+        </summary>
+        <div className="border-t border-slate-100 p-4 sm:p-5">
         <p className="text-xs text-slate-500 mb-3">
           Đây là <span className="font-medium">khung giờ làm</span> (giờ xếp ca) cho mỗi ngày trong
           tuần. Ca sáng bắt đầu ở đầu khung, ca tối kết thúc ở cuối khung — có thể khác giờ mở cửa cho
@@ -353,7 +371,8 @@ export function SettingsTab({ store }: { store: UseScheduleReturn }) {
             </ul>
           </div>
         )}
-      </section>
+        </div>
+      </details>
 
       <section className="rounded-lg bg-white border border-slate-200 p-4 sm:p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900 mb-1">Ngày đặc biệt</h2>

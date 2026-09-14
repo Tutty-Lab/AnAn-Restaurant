@@ -66,6 +66,22 @@ function draftFrom(emp?: Employee): Draft {
   };
 }
 
+/** Tóm tắt các thiết lập „Nâng cao" đang bật (dòng dưới tiêu đề), hoặc null nếu chưa đặt gì. */
+function advancedSummary(d: Draft): string | null {
+  const parts: string[] = [];
+  if (d.fixed) parts.push(`ca cố định ${d.fixedStart}–${d.fixedEnd}`);
+  if (d.availableWeekdays.length > 0 && d.availableWeekdays.length < WEEKDAY_ORDER.length) {
+    const days = WEEKDAY_ORDER.filter((key) => d.availableWeekdays.includes(key)).map((key) => WEEKDAY_SHORT_VI[key]);
+    parts.push(`làm ${days.join(", ")}`);
+  }
+  if (Number(d.maxDays) >= 1) parts.push(`tối đa ${Math.min(7, Math.round(Number(d.maxDays)))} ngày/tuần`);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.startDate)) {
+    const [year, month, day] = d.startDate.split("-");
+    parts.push(`vào làm ${day}.${month}.${year}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 /** Wandelt "HH:MM" in Minuten; bei Unsinn die Voreinstellung. */
 function safeMinutes(time: string, fallback: string): number {
   try {
@@ -328,6 +344,27 @@ function EmployeeSheet({
             Tháng này ≈ <b>{minutesToShortHours(monatMin)}</b> · {info.text}
           </div>
 
+          {/*
+            „Nâng cao": selten gebraucht, deshalb eingeklappt. Hat die Person
+            schon eine Sonderregel, ist der Block offen – sonst wäre eine aktive
+            Einschränkung unsichtbar. Das open-Attribut hängt nur am gespeicherten
+            Mitarbeiter (nicht am Entwurf), damit React das Auf-/Zuklappen nicht
+            bei jedem Tastendruck zurücksetzt.
+          */}
+          <details
+            open={advancedSummary(draftFrom(employee)) !== null}
+            className="group rounded-lg border border-slate-200"
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+              <span>
+                Nâng cao
+                <span className="block text-xs font-normal text-slate-500">
+                  {advancedSummary(d) ?? "Ca cố định, ngày làm trong tuần, ngày vào làm – chưa đặt"}
+                </span>
+              </span>
+              <span className="text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true">›</span>
+            </summary>
+            <div className="space-y-4 border-t border-slate-100 px-3 pb-3 pt-3">
           <div>
             <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer select-none">
               <input
@@ -443,6 +480,8 @@ function EmployeeSheet({
               </span>
             </label>
           </div>
+            </div>
+          </details>
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-slate-200 px-4 py-3">

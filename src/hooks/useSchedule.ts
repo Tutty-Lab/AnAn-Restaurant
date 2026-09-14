@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Employee, Schedule, Shift } from "../types";
 import { generateSchedule } from "../lib/scheduler";
+import { isScheduleYearAllowed, SCHEDULE_YEAR_RANGE_LABEL } from "../lib/years";
 import { analyzeSchedule } from "../lib/analyze";
 import { validateSchedule, type ValidationResult } from "../lib/validation";
 import { clearState, loadState, saveState, type PersistedState } from "../lib/storage";
@@ -345,22 +346,34 @@ export function useSchedule() {
   }, []);
 
   // ----- Generierung -----
-  const generate = useCallback(() => {
+  /**
+   * Plan erzeugen – für den gewählten Monat (Popup „Tạo lịch") oder, ohne
+   * Angabe, für den aktuellen. Monat/Jahr werden im SELBEN Update gesetzt wie
+   * die Schichten; getrennt (erst updateMeta, dann generate) plante der
+   * Callback noch mit dem alten Monat.
+   */
+  const generate = useCallback((target?: { year: number; month: number }) => {
     // Ein neuer Plan hebt die Sperre des Monats auf: das alte gedruckte Blatt
     // ist damit überholt, also verschwinden auch die „gedruckt"-Häkchen der
     // Wochen. Die Oberfläche fragt bei einem gesperrten Monat vorher nach.
     setGenError(null);
+    const year = target?.year ?? schedule.year;
+    const month = target?.month ?? schedule.month;
+    if (!isScheduleYearAllowed(year)) {
+      setGenError(`Chỉ tạo lịch cho các năm ${SCHEDULE_YEAR_RANGE_LABEL}.`);
+      return;
+    }
     try {
       const shifts = generateSchedule({
-        year: schedule.year,
-        month: schedule.month,
+        year,
+        month,
         workHours: schedule.workHours,
         overrides: overridesToMap(schedule.dateOverrides),
         employees: schedule.employees,
         // Frischer Seed pro Klick => jedes Mal ein anderer gültiger Plan.
-        seed: `${schedule.year}-${schedule.month}-${Date.now()}-${genNonce.current++}`,
+        seed: `${year}-${month}-${Date.now()}-${genNonce.current++}`,
       });
-      setSchedule((s) => ({ ...s, shifts, lockedAt: undefined, printedWeeks: [] }));
+      setSchedule((s) => ({ ...s, year, month, shifts, lockedAt: undefined, printedWeeks: [] }));
       setOriginalShifts(shifts.map((sh) => ({ ...sh })));
       setGenStamp((n) => n + 1);
     } catch (err) {

@@ -25,24 +25,35 @@ export function safeFileName(text: string): string {
   return plain.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "Stundenzettel";
 }
 
-/**
- * Rendert die übergebenen Elemente in eine PDF (ein Element = eine A4-Seite)
- * und stößt den Download an. Die Elemente müssen sichtbar gerendert sein –
- * display:none kann html2canvas nicht aufnehmen (deshalb die Offscreen-Bühne).
- */
 /** Schriftstapel wie in der App (Tailwind-Sans). Wird beim Klonen erzwungen. */
 const FONT_STACK =
   'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+/**
+ * Nächster Frame – aber höchstens 100 ms warten. Pausiert der Browser das
+ * Zeichnen (App im Hintergrund, WebView einer Chat-App), käme requestAnimationFrame
+ * nie, und der Knopf bliebe für immer auf „Đang tạo PDF…" stehen.
+ */
+const nextFrame = () =>
+  Promise.race([new Promise((resolve) => requestAnimationFrame(() => resolve(null))), sleep(100)]);
 
+/**
+ * Rendert die übergebenen Elemente in eine PDF (ein Element = eine A4-Seite).
+ * Die Elemente müssen sichtbar gerendert sein – display:none kann html2canvas
+ * nicht aufnehmen (deshalb die Offscreen-Bühne).
+ *
+ * download = true (Standard): Datei direkt herunterladen (Rechner, Chrome,
+ * Safari). download = false: nur die PDF zurückgeben – für In-App-Browser, dort
+ * wird sie erst auf einen eigenen Tipp über das Teilen-Menü ausgeliefert.
+ */
 export async function elementsToPdf(
   elements: HTMLElement[],
   filename: string,
   onProgress?: (current: number, total: number) => void,
-): Promise<void> {
-  if (elements.length === 0) return;
+  options: { download?: boolean } = {},
+): Promise<Blob | null> {
+  if (elements.length === 0) return null;
 
   // Schriften ZUERST laden. Sonst nimmt html2canvas eine Seite gelegentlich auf,
   // bevor die Schrift/Styles stehen.
@@ -159,7 +170,9 @@ export async function elementsToPdf(
     await sleep(25);
   }
 
-  await deliver(doc.output("blob"), filename);
+  const blob = doc.output("blob");
+  if (options.download !== false) await deliver(blob, filename);
+  return blob;
 }
 
 /**
@@ -167,6 +180,7 @@ export async function elementsToPdf(
  * Đặt kiểu MIME thành application/octet-stream với tên file .pdf để các trình duyệt
  * (đặc biệt là Safari iOS, Chrome trên iPhone/Android) tự động kích hoạt trình tải file
  * và lưu thẳng vào máy (thư mục Tệp / Downloads) thay vì mở sang link/tab mới.
+ * KHÔNG dùng trong trình duyệt nhúng (Zalo, Messenger …) – ở đó xem sharePdf.
  */
 export async function deliver(blob: Blob, filename: string): Promise<void> {
   if (typeof document === "undefined") return;
@@ -187,4 +201,24 @@ export async function deliver(blob: Blob, filename: string): Promise<void> {
     }
     URL.revokeObjectURL(url);
   }, 60_000);
+}
+
+export type ShareResult = "shared" | "cancelled" | "unsupported" | "failed";
+
+/**
+ * Bảng Chia sẻ của hệ thống („Lưu vào Tệp", gửi qua Zalo …) cho trình duyệt nhúng.
+ * Phải gọi TRỰC TIẾP trong lúc người dùng bấm nút: tạo PDF mất vài giây, gọi
+ * share sau đó thì trình duyệt coi như không có thao tác người dùng và từ chối.
+ */
+export async function sharePdf(blob: Blob, filename: string): Promise<ShareResult> {
+  if (typeof navigator === "undefined" || typeof File === "undefined") return "unsupported";
+  const file = new File([blob], filename, { type: "application/pdf" });
+  if (!navigator.canShare?.({ files: [file] })) return "unsupported";
+  try {
+    await navigator.share({ files: [file], title: filename });
+    return "shared";
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") return "cancelled";
+    return "failed";
+  }
 }
