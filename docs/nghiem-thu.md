@@ -86,7 +86,7 @@
 
 ## F. Dữ liệu · khóa · đăng nhập · đồng bộ
 
-- [ ] Mở lần đầu có sẵn **dữ liệu mẫu (12 NV)**; đổi **Tháng/Năm** cập nhật đúng.
+- [ ] Mở lần đầu có sẵn **dữ liệu mẫu nhân viên của quán** (mỗi quán một danh sách riêng); đổi **Tháng/Năm** cập nhật đúng.
 - [ ] Xuất lịch **một tuần** ⇒ **khóa** lịch tháng; **mở khóa** lại được; **tạo lịch mới** cũng mở khóa.
 - [ ] **Thêm / sửa / xoá nhân viên** (kể cả **"Ngày vào làm"**, **ca cố định**) cập nhật đúng.
 - [ ] **Ngày nghỉ / đóng cửa / half-day** (override) áp đúng, **lưu lại**.

@@ -311,10 +311,10 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
 
           <div className="flex flex-wrap items-end gap-3">
             {/* WER */}
-            <label className="flex flex-col gap-1">
+            <label className="flex w-full min-w-0 flex-col gap-1 sm:w-auto">
               <span className="text-xs text-slate-500">Cho ai</span>
               <select
-                className="rounded border border-slate-300 px-2 py-2 text-sm min-w-[10rem]"
+                className="w-full max-w-full rounded border border-slate-300 px-2 py-2 text-sm sm:w-auto sm:min-w-[10rem]"
                 value={who}
                 onChange={(e) => setWho(e.target.value)}
               >
@@ -328,10 +328,10 @@ export function StundenzettelTab({ store }: { store: UseScheduleReturn }) {
             </label>
 
             {/* WAS */}
-            <label className="flex flex-col gap-1">
+            <label className="flex w-full min-w-0 flex-col gap-1 sm:w-auto">
               <span className="text-xs text-slate-500">Nội dung</span>
               <select
-                className="rounded border border-slate-300 px-2 py-2 text-sm min-w-[14rem]"
+                className="w-full max-w-full rounded border border-slate-300 px-2 py-2 text-sm sm:w-auto sm:min-w-[14rem]"
                 value={what}
                 onChange={(e) => setWhat(e.target.value)}
               >

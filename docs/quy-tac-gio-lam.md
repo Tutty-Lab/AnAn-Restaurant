@@ -20,7 +20,7 @@ Hai nhóm quy tắc: **(1) LUẬT** (không được vi phạm) và **(2) quy t�
 > toán/luật.
 
 ### Suy ra cho thuật toán (phải luôn đúng)
-- Không xếp ai **> 10h/ngày**.
+- Không xếp ai **> 10h/ngày** (giới hạn luật; từng quán có thể chặn thấp hơn – AnAn chặn **9 giờ công/ngày**, xem mục 2).
 - Không xếp ai **> 6 ngày liên tiếp** (phải chèn ngày nghỉ).
 - **Pause** tự tính theo ngưỡng 6h/8h và **trừ khỏi giờ trả lương**.
 - Khoảng cách hai ca của cùng người **≥ 11h**.
@@ -32,6 +32,7 @@ Hai nhóm quy tắc: **(1) LUẬT** (không được vi phạm) và **(2) quy t�
 Restaurant AnAn:
 
 - **Giờ mở:** T2–T6 11:00–14:30 và 17:00–22:30 · T7 11:00–22:30 · CN và ngày lễ 12:00–22:30.
+- **Tối đa 9 giờ công/ngày** (quán yêu cầu, thấp hơn giới hạn luật 10h); app chặn cả khi xếp tự động lẫn khi sửa tay.
 - **Peak hour chủ yếu buổi tối**; ngày đông nhất **T6, T7, CN** (hệ số 1,5) – ưu tiên nhiều người buổi tối của 3 ngày này.
 - **Trong giờ mở luôn ít nhất 2 người trong quán**, gồm ít nhất 1 **bếp** và **2 phục vụ** (người chưa gán nhóm tính như phục vụ).
 - **Buổi trưa chỉ cần 2 nhân viên bếp.**

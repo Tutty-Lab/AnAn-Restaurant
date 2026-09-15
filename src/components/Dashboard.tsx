@@ -198,9 +198,10 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
             {peakGaps.length > 8 && <div className="opacity-70">… và {peakGaps.length - 8} ngày nữa</div>}
           </div>
           <div className="mt-2 opacity-80">
-            → Vì sao: tổng giờ trong ngày đủ định mức, nhưng phân bố theo giờ chưa khớp khung cao điểm
-            (18–20h, trưa CN, đóng cửa). Cách xử lý: tăng định mức/thêm người cho ngày đó, hoặc chấp
-            nhận vì lịch vẫn hợp lệ.
+            → Vì sao: có lúc số người của một nhóm chưa khớp khung yêu cầu (bếp ≥ 1, phục vụ ≥ 2 suốt giờ mở,
+            bếp trưa đúng 2, tối 18–21h, lái xe mỗi tối). Thường là nhóm đó không đủ giờ hợp đồng để phủ
+            hết – xem giờ nào ở <b>Độ phủ</b>. Cách xử lý: thêm giờ/người cho nhóm thiếu, sửa tay ca đó,
+            hoặc chấp nhận vì lịch vẫn hợp lệ.
           </div>
         </InfoNote>
       )}
