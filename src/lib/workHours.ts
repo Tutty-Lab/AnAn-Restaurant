@@ -12,8 +12,8 @@ export type DayWindow = { startMinutes: number; endMinutes: number };
 /**
  * Ein Arbeitstag kann aus MEHREREN Blöcken bestehen.
  *
- * Viet Cuisine öffnet Di–Sa zweimal am Tag (10:30–14:30 und 16:30–22:30). Ein
- * Dienst muss immer KOMPLETT in einen Block passen – über die
+ * Restaurant AnAn öffnet Mo–Fr zweimal am Tag (11:00–14:30 und 17:00–22:30).
+ * Ein Dienst muss immer KOMPLETT in einen Block passen – über die
  * Mittagsschließung hinweg gibt es keine Schicht.
  */
 export type DayBlocks = DayWindow[];
@@ -23,7 +23,7 @@ export type WorkHoursConfig = {
   holiday: DayBlocks;
   /**
    * Wochentage, an denen der Laden grundsätzlich geschlossen ist (kein Dienst).
-   * Bei Viet Cuisine ist das der Montag. Ein Datum-Override mit eigenen Zeiten kann
+   * Restaurant AnAn hat täglich geöffnet. Ein Datum-Override mit eigenen Zeiten kann
    * einen solchen Tag im Einzelfall trotzdem öffnen.
    */
   closedWeekdays: Record<WeekdayKey, boolean>;
@@ -69,28 +69,29 @@ export function longestBlock(blocks: DayBlocks): number {
 
 const w = (start: number, end: number): DayWindow => ({ startMinutes: start, endMinutes: end });
 
-// Vorgabe des Betriebs (Viet Cuisine GmbH), Arbeitszeit:
-//   Montag             geschlossen
-//   Dienstag–Samstag   10:30–14:30 UND 16:30–22:30  (zwei Blöcke, Pause 14:30–16:30)
-//   Sonntag & Feiertag 10:30–22:00 DURCHGEHEND (keine Mittagspause, ganzer Tag)
-const MITTAGS_SPLIT: DayBlocks = [w(10 * 60 + 30, 14 * 60 + 30), w(16 * 60 + 30, 22 * 60 + 30)];
-const DURCHGEHEND: DayBlocks = [w(10 * 60 + 30, 22 * 60)];
+// Vorgabe des Betriebs (Restaurant AnAn), Öffnungszeiten – täglich geöffnet:
+//   Montag–Freitag   11:00–14:30 UND 17:00–22:30  (zwei Blöcke, zu 14:30–17:00)
+//   Samstag          11:00–22:30 DURCHGEHEND
+//   Sonntag          12:00–22:30 DURCHGEHEND
+//   Feiertag         wie Sonntag (12:00–22:30)
+const MITTAGS_SPLIT: DayBlocks = [w(11 * 60, 14 * 60 + 30), w(17 * 60, 22 * 60 + 30)];
+const SAMSTAG: DayBlocks = [w(11 * 60, 22 * 60 + 30)];
+const SONNTAG: DayBlocks = [w(12 * 60, 22 * 60 + 30)];
 
 export const DEFAULT_WORK_HOURS: WorkHoursConfig = {
   perWeekday: {
-    monday: MITTAGS_SPLIT.map((b) => ({ ...b })), // geschlossen, nur als Rückfall
+    monday: MITTAGS_SPLIT.map((b) => ({ ...b })),
     tuesday: MITTAGS_SPLIT.map((b) => ({ ...b })),
     wednesday: MITTAGS_SPLIT.map((b) => ({ ...b })),
     thursday: MITTAGS_SPLIT.map((b) => ({ ...b })),
     friday: MITTAGS_SPLIT.map((b) => ({ ...b })),
-    saturday: MITTAGS_SPLIT.map((b) => ({ ...b })),
-    // Sonntag durchgehend, ohne Mittagsschließung.
-    sunday: DURCHGEHEND.map((b) => ({ ...b })),
+    saturday: SAMSTAG.map((b) => ({ ...b })),
+    sunday: SONNTAG.map((b) => ({ ...b })),
   },
-  // Feiertage werden wie Sonntag behandelt: der Laden ist OFFEN, durchgehend.
-  holiday: DURCHGEHEND.map((b) => ({ ...b })),
+  // Feiertage: geöffnet wie Sonntag.
+  holiday: SONNTAG.map((b) => ({ ...b })),
   closedWeekdays: {
-    monday: true, // Viet Cuisine: montags geschlossen
+    monday: false,
     tuesday: false,
     wednesday: false,
     thursday: false,

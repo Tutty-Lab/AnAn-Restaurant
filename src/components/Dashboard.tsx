@@ -74,7 +74,12 @@ function underQuotaReason(emp: Employee | undefined, schedule: Schedule): string
   if (emp.startDate && emp.startDate.startsWith(prefix)) {
     parts.push(`vào làm từ ${shortDate(emp.startDate)} (các ngày trước không tính)`);
   }
-  if (emp.availableWeekdays && emp.availableWeekdays.length > 0 && emp.availableWeekdays.length < 6) {
+  const monthEnd = `${prefix}31`;
+  const school = (emp.schoolPeriods ?? []).filter((period) => period.start <= monthEnd && period.end >= `${prefix}01`);
+  if (school.length > 0) {
+    parts.push(`đang trong kỳ học ${school.map((period) => `${shortDate(period.start)}–${shortDate(period.end)}`).join(", ")}`);
+  }
+  if (emp.availableWeekdays && emp.availableWeekdays.length > 0 && emp.availableWeekdays.length < 7) {
     parts.push(`chỉ làm ${emp.availableWeekdays.length} ngày cố định trong tuần`);
   }
   if (emp.maxDaysPerWeek != null && emp.maxDaysPerWeek < 6) {
@@ -91,6 +96,7 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
   const vz = schedule.employees.filter((e) => e.employmentType === "VOLLZEIT").length;
   const tz = schedule.employees.filter((e) => e.employmentType === "TEILZEIT").length;
   const mj = schedule.employees.filter((e) => e.employmentType === "MINIJOB").length;
+  const az = schedule.employees.filter((e) => e.employmentType === "AZUBI").length;
   const byId = new Map(schedule.employees.map((e) => [e.id, e] as const));
   // Wochenverträge (weeklyHours) haben targetMinutes = 0; das Monats-Soll wird
   // erst über die offenen Tage abgeleitet (contract.ts), genau wie in der Prüfung.
@@ -125,7 +131,7 @@ export function Dashboard({ store }: { store: UseScheduleReturn }) {
         <Stat label="Số nhân viên" value={String(schedule.employees.length)} />
         <Stat label="Toàn thời gian" value={String(vz)} />
         <Stat label="Bán thời gian" value={String(tz)} />
-        <Stat label="Minijob" value={String(mj)} />
+        <Stat label="Minijob / Azubi" value={`${mj} / ${az}`} />
         <Stat label="Tổng giờ định mức" value={`${minutesToDecimalHours(targetMin, 1)} h`} />
         <Stat label="Tổng giờ đã xếp" value={`${minutesToDecimalHours(plannedMin, 1)} h`} />
         <Stat label="Giờ chưa thể xếp" value={`${minutesToDecimalHours(uncoveredMin, 1)} h`} accent={uncoveredMin ? "text-amber-600" : "text-emerald-600"} />

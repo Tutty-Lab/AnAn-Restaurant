@@ -1,16 +1,17 @@
 // ============================================================================
-// Wochenvertrag -> Monats-Soll und Wochenbudgets.
+// Verträge -> Monats-Soll und Wochenbudgets.
 //
-// Viet Cuisine gibt Verträge in WOCHENstunden an (39 h/Woche = Vollzeit). Der
-// Scheduler plant aber einen Monat. Diese Umrechnung steht hier an EINER Stelle,
+// Restaurant AnAn hat zwei Vertragsarten:
+//  - WOCHENvertrag (Azubi, 39 h/Woche): harte Grenze je ISO-Woche.
+//  - MONATSvertrag (alle anderen, z. B. 92,70 h/Monat): wird im 30-Minuten-Raster
+//    auf die Wochen des Monats verteilt und nie überschritten (92,70 h → 92,5 h).
+// Der Scheduler plant einen Monat. Diese Umrechnung steht hier an EINER Stelle,
 // damit Scheduler, Prüfung und Anzeige dieselbe Zahl verwenden.
 //
 // Eine ISO-Woche, die über zwei Monate läuft, wird nach demselben Faktor geteilt
-// wie die Tagesziele (Tab „Tài liệu"): Tagesgewicht × Öffnungsdauer. Di+Mi am
-// Monatsende tragen 1.200 von 4.635 Faktor-Minuten (≈ 26 %, 39 h → 10 h), ein
-// einzelner Sonntag am Monatsanfang 1.035 (≈ 22 %) – genau so viel, wie der
-// Sonntag in einer vollen Woche bekommt. Beide Monatsteile ergeben zusammen den
-// Wochenvertrag.
+// wie die Tagesziele (Tab „Tài liệu"): Tagesgewicht × Öffnungsdauer. Beide
+// Monatsteile ergeben zusammen den Wochenvertrag. Tage vor dem Eintritt und in
+// der Berufsschulzeit zählen nicht.
 //
 // Ein Wochenteil trägt aber nie mehr, als an seinen Tagen überhaupt geht:
 // höchstens 9 h je offenem Tag. Sonst bekäme ein einzelner Sonntag in einem Monat
@@ -22,6 +23,8 @@ import type { Employee } from "../types";
 import { DAY_WEIGHTS, parseIsoDate, weekdayKeyOf, type WeekdayKey } from "./demand";
 import { weekStartOf } from "./weeks";
 import { DEFAULT_WORK_HOURS, type WorkHoursConfig } from "./workHours";
+import { countsForContract } from "./availability";
+import { driverWindowOf } from "./staffing";
 
 /** ISO "yyyy-MM-dd" + n Tage (UTC, ohne Zeitzonen-Verschiebung). */
 function addDaysIso(isoDate: string, days: number): string {
@@ -29,7 +32,7 @@ function addDaysIso(isoDate: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
-/** Offene Tage je Woche: Di–So, der Montag ist zu. */
+/** Höchstens so viele Arbeitstage je Woche zählen für einen Vertrag (6-Tage-Regel). */
 export const OPEN_DAYS_PER_WEEK = 6;
 export const SCHEDULE_SLOT_MINUTES = 30;
 /** Höchste bezahlte Zeit je Tag (§ 3 ArbZG, siehe validation.ts). */
@@ -72,6 +75,20 @@ function weekdayFactor(weekday: WeekdayKey, workHours: WorkHoursConfig): number 
 }
 
 /**
+ * Faktor, nach dem der Vertrag einer Person auf Tage/Wochen verteilt wird.
+ * Fahrer fahren jeden Abend im Fahrerfenster (Mo–Sa 3 h, So 4 h) – ihr Soll folgt
+ * diesem Fenster, nicht Tagesgewicht × Öffnungsdauer. Sonst bekäme eine Randwoche
+ * mit ruhigen Tagen zu wenig Fahrerstunden und ein Abend bliebe ohne Fahrer.
+ */
+function contractFactor(emp: Employee, weekday: WeekdayKey, workHours: WorkHoursConfig): number {
+  if (emp.workRole === "DRIVER") {
+    const window = driverWindowOf(weekday);
+    return window.endMinutes - window.startMinutes;
+  }
+  return weekdayFactor(weekday, workHours);
+}
+
+/**
  * Wochenanteile DIESER Person im Monat (gleicher Faktor wie die Tagesziele).
  *
  * Normale Woche = Wochentage, die in mindestens zwei Wochen des Monats offen
@@ -89,17 +106,17 @@ export function weekSharesFor(
     weeksByWeekday.set(weekday, (weeksByWeekday.get(weekday) ?? new Set()).add(weekStartOf(date)));
   }
   const fullWeek = [...weeksByWeekday].reduce(
-    (sum, [weekday, weeks]) => sum + (weeks.size >= 2 ? weekdayFactor(weekday, workHours) : 0),
+    (sum, [weekday, weeks]) => sum + (weeks.size >= 2 ? contractFactor(emp, weekday, workHours) : 0),
     0,
   );
   if (fullWeek <= 0) return [];
 
   const byWeek = new Map<string, { factor: number; days: number }>();
   for (const date of openDates) {
-    if (emp.startDate != null && date < emp.startDate) continue;
+    if (!countsForContract(emp, date)) continue;
     const week = weekStartOf(date);
     const entry = byWeek.get(week) ?? { factor: 0, days: 0 };
-    entry.factor += weekdayFactor(weekdayKeyOf(parseIsoDate(date)), workHours);
+    entry.factor += contractFactor(emp, weekdayKeyOf(parseIsoDate(date)), workHours);
     entry.days += 1;
     byWeek.set(week, entry);
   }
@@ -189,6 +206,57 @@ export function weeklyBudgetMinutes(
   for (const week of weeks) {
     result.set(week.weekStart, whole.get(week.weekStart)! * SCHEDULE_SLOT_MINUTES);
   }
+  return result;
+}
+
+/**
+ * Wochenbudgets (Minuten im 30-Minuten-Raster) für einen MONATSvertrag.
+ *
+ * - Geplant wird höchstens der Vertrag, abgerundet aufs Raster (92,70 h → 92,5 h),
+ *   damit ein Monat nie über dem Vertrag liegt.
+ * - Verteilt nach demselben Faktor wie die Tagesziele (Gewicht × Öffnungsdauer)
+ *   über die Tage, die für den Vertrag zählen (ab Eintritt, ohne Berufsschule).
+ * - Keine Woche trägt mehr als 9 h × min(Tage, 6); Reste nach größtem Bruchteil.
+ */
+export function monthlyBudgetMinutes(
+  emp: Employee,
+  openDates: readonly string[],
+  workHours: WorkHoursConfig = DEFAULT_WORK_HOURS,
+): Map<string, number> {
+  const result = new Map<string, number>();
+  const byWeek = new Map<string, { factor: number; days: number }>();
+  for (const date of openDates) {
+    const week = weekStartOf(date);
+    if (!result.has(week)) result.set(week, 0);
+    if (!countsForContract(emp, date)) continue;
+    const entry = byWeek.get(week) ?? { factor: 0, days: 0 };
+    entry.factor += contractFactor(emp, weekdayKeyOf(parseIsoDate(date)), workHours);
+    entry.days += 1;
+    byWeek.set(week, entry);
+  }
+  const totalSlots = Math.floor(emp.targetMinutes / SCHEDULE_SLOT_MINUTES + 1e-9);
+  const factorSum = [...byWeek.values()].reduce((sum, entry) => sum + entry.factor, 0);
+  if (totalSlots <= 0 || factorSum <= 0) return result;
+
+  const weeks = [...byWeek]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([weekStart, entry]) => {
+      const raw = (totalSlots * entry.factor) / factorSum;
+      const cap = Math.floor((Math.min(entry.days, OPEN_DAYS_PER_WEEK) * MAX_PAID_MINUTES_PER_DAY) / SCHEDULE_SLOT_MINUTES);
+      return { weekStart, raw, cap, slots: Math.min(cap, Math.floor(raw + 1e-9)) };
+    });
+  let rest = totalSlots - weeks.reduce((sum, week) => sum + week.slots, 0);
+  const byFraction = [...weeks].sort((a, b) => (b.raw % 1) - (a.raw % 1) || a.weekStart.localeCompare(b.weekStart));
+  while (rest > 0) {
+    const open = byFraction.filter((week) => week.slots < week.cap);
+    if (open.length === 0) break;
+    for (const week of open) {
+      if (rest <= 0) break;
+      week.slots += 1;
+      rest -= 1;
+    }
+  }
+  for (const week of weeks) result.set(week.weekStart, week.slots * SCHEDULE_SLOT_MINUTES);
   return result;
 }
 

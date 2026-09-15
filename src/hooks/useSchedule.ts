@@ -26,6 +26,7 @@ import { COMPANY_ADDRESS, COMPANY_NAME } from "../lib/company";
 import { createInitialSchedule } from "../lib/sampleData";
 import { contractOpenDays } from "../lib/contract";
 import { weekStartOf } from "../lib/weeks";
+import { WORK_ROLES } from "../lib/employment";
 
 /**
  * Steht in diesem Stand überhaupt etwas? Maßstab sind Mitarbeiter und
@@ -56,6 +57,12 @@ function overridesToMap(list: DateOverride[]): OverrideMap {
   return map;
 }
 
+/** Unbekannte Bereiche aus alten Speicherständen werden zu „chưa gán". */
+function normalizeEmployee(employee: Employee): Employee {
+  const role: string | undefined = employee.workRole;
+  return role == null || (WORK_ROLES as readonly string[]).includes(role) ? employee : { ...employee, workRole: undefined };
+}
+
 /** Migriert einen (evtl. alten) gespeicherten Stand auf das aktuelle Schema. */
 function normalizeSchedule(raw: Schedule | undefined): Schedule {
   const base = emptySchedule();
@@ -68,7 +75,7 @@ function normalizeSchedule(raw: Schedule | undefined): Schedule {
     month: raw.month ?? base.month,
     workHours: normalizeWorkHours(raw.workHours),
     dateOverrides: Array.isArray(raw.dateOverrides) ? raw.dateOverrides : [],
-    employees: raw.employees ?? [],
+    employees: (raw.employees ?? []).map(normalizeEmployee),
     shifts: raw.shifts ?? [],
     lockedAt: raw.lockedAt,
     printedWeeks: Array.isArray(raw.printedWeeks) ? raw.printedWeeks : [],

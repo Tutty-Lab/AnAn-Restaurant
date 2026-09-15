@@ -7,11 +7,23 @@ import type { WeekdayKey } from "./lib/demand";
 import type { DateOverride, DayWindow, WorkHoursConfig } from "./lib/workHours";
 
 /**
- * Anstellungsart. MINIJOB ist arbeitsrechtlich eine Form der Teilzeit und wird
- * bei der Schichtplanung auch genauso behandelt – die Trennung dient der
- * Belegschaftsstruktur und dem Stundenzettel, nicht der Planung selbst.
+ * Anstellungsart.
+ * - VOLLZEIT: feste, wiederkehrende Dienste (gleiche Zeiten je Wochentag).
+ * - AZUBI: fester Wochenvertrag (39 h/Woche), in der Berufsschulzeit kein Dienst.
+ * - TEILZEIT / MINIJOB: werden bevorzugt in die Stoßzeiten gelegt.
  */
-export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "MINIJOB";
+export type EmploymentType = "VOLLZEIT" | "TEILZEIT" | "MINIJOB" | "AZUBI";
+
+/**
+ * Bereich im Restaurant AnAn. Fehlt der Wert, ist die Person noch keinem Bereich
+ * zugeordnet (der Admin trägt ihn nach) und zählt bei der Besetzung wie Service.
+ * Fahrer (DRIVER) zählen nicht zur Besetzung im Laden und arbeiten nur 18–21 Uhr,
+ * sonntags und an Feiertagen 18–22 Uhr (staffing.ts, DRIVER_HOURS).
+ */
+export type WorkRole = "KITCHEN" | "SERVICE" | "DRIVER";
+
+/** Zeitraum (inklusive) als ISO-Daten "yyyy-MM-dd". */
+export type DateRange = { start: string; end: string };
 
 export type ShiftType = "EARLY" | "LATE" | "CUSTOM";
 
@@ -20,24 +32,26 @@ export type Employee = {
   name: string;
   employmentType: EmploymentType;
   /**
-   * Monatliches Soll in Minuten (Integer). 176 h => 10560.
-   *
-   * Bei Viet Cuisine wird der Vertrag in WOCHENstunden angegeben (39 h/Woche
-   * = Vollzeit). Ist weeklyHours gesetzt, ist DAS die Quelle und targetMinutes
-   * wird je Monat daraus berechnet (siehe contract.ts). targetMinutes bleibt
-   * trotzdem befüllt, damit ältere gespeicherte Daten einen Wert haben.
+   * MONATSvertrag in Minuten (Integer), z. B. 92,70 h/Monat => 5562.
+   * Gilt, wenn weeklyHours fehlt. Geplant wird im 30-Minuten-Raster und nie
+   * über dem Vertrag (92,70 h => 92,5 h).
    */
   targetMinutes: number;
   /**
-   * Vertragliche WOCHENstunden. Gesetzt => targetMinutes wird je Monat daraus
-   * abgeleitet: Wochenstunden × (offene Tage des Monats ÷ 6 offene Tage/Woche).
-   * Sechs offene Tage, weil der Laden montags zu ist (Di–So).
+   * WOCHENvertrag (Azubi: 39 h/Woche). Gesetzt => targetMinutes wird je Monat
+   * aus den Wochenanteilen abgeleitet (contract.ts).
    */
   weeklyHours?: number;
+  /** Bếp / Phục vụ / Lái xe; fehlt = chưa gán. */
+  workRole?: WorkRole;
+  /**
+   * Berufsschulzeiten (Azubi): an diesen Tagen kein Dienst, und sie zählen
+   * nicht ins Wochen-/Monats-Soll.
+   */
+  schoolPeriods?: DateRange[];
   /**
    * Feste Schicht: diese Person arbeitet an ihren Arbeitstagen IMMER in genau
-   * diesem Zeitfenster (Viet Cuisine: eine Kraft nur 6:30–14:30, Vorbereitung
-   * ab vor Ladenöffnung). Gesetzt => der Scheduler legt für sie nur Dienste in
+   * diesem Zeitfenster. Gesetzt => der Scheduler legt für sie nur Dienste in
    * diesem Fenster an, unabhängig von den Öffnungsblöcken.
    */
   fixedShift?: DayWindow;

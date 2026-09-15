@@ -1,6 +1,48 @@
-import type { Shift } from "../types";
+import type { Employee, Shift } from "../types";
 import { DAY_WEIGHTS, type WeekdayKey } from "./demand";
 import type { DayBlocks, DayWindow } from "./workHours";
+
+// ── Nhóm nhân viên ──────────────────────────────────────────────────────────
+/**
+ * Bereich, nach dem die Besetzung gezählt wird. Wer noch keinem Bereich
+ * zugeordnet ist (Admin trägt es später ein), zählt wie Service – so bleibt die
+ * Mindestbesetzung „Phục vụ" prüfbar, bis die Zuordnung steht.
+ */
+export type StaffGroup = "KITCHEN" | "SERVICE" | "DRIVER";
+export const STAFF_GROUPS: readonly StaffGroup[] = ["KITCHEN", "SERVICE", "DRIVER"];
+/** Personen im Laden (Bếp + Phục vụ). Fahrer sind unterwegs und zählen nicht mit. */
+export const IN_HOUSE: readonly StaffGroup[] = ["KITCHEN", "SERVICE"];
+export const GROUP_LABEL_VI: Record<StaffGroup, string> = { KITCHEN: "Bếp", SERVICE: "Phục vụ", DRIVER: "Lái xe" };
+
+export function staffGroupOf(employee: Employee | undefined): StaffGroup {
+  if (employee?.workRole === "KITCHEN") return "KITCHEN";
+  if (employee?.workRole === "DRIVER") return "DRIVER";
+  return "SERVICE";
+}
+
+/** Arbeitszeit der Fahrer (Vorgabe des Betriebs): 18–21 Uhr, sonntags 18–22 Uhr. Feiertage gelten wie Sonntag. */
+export const DRIVER_HOURS: { default: DayWindow; sunday: DayWindow } = {
+  default: { startMinutes: 18 * 60, endMinutes: 21 * 60 },
+  sunday: { startMinutes: 18 * 60, endMinutes: 22 * 60 },
+};
+
+export function driverWindowOf(weekday: WeekdayKey): DayWindow {
+  return weekday === "sunday" ? DRIVER_HOURS.sunday : DRIVER_HOURS.default;
+}
+
+/** Blöcke, in denen diese Person arbeiten darf: Fahrer nur im Fahrerfenster, alle anderen in allen Öffnungsblöcken. */
+export function workBlocksFor(employee: Employee | undefined, blocks: DayBlocks, weekday: WeekdayKey): DayBlocks {
+  if (staffGroupOf(employee) !== "DRIVER") return blocks;
+  const window = driverWindowOf(weekday);
+  return blocks
+    .map((block) => ({ startMinutes: Math.max(window.startMinutes, block.startMinutes), endMinutes: Math.min(window.endMinutes, block.endMinutes) }))
+    .filter((block) => block.endMinutes > block.startMinutes);
+}
+
+/** Welche Bereiche es in dieser Belegschaft überhaupt gibt. */
+export function presentGroups(employees: readonly Employee[]): Set<StaffGroup> {
+  return new Set(employees.map(staffGroupOf));
+}
 
 export type StaffingWindow = {
   label: string;
@@ -8,21 +50,27 @@ export type StaffingWindow = {
   endMinutes: number;
   minStaff: number;
   maxStaff: number;
+  /** Nur Personen dieser Bereiche zählen für das Fenster. */
+  groups: readonly StaffGroup[];
 };
 
+/** Ab hier keine Pause mehr, wenn es sich vermeiden lässt (Abschluss des Abends). */
 export const CLOSING_START = 21 * 60 + 30;
-export const CLOSING_MIN = 3;
-export const CLOSING_MAX = 4;
+
+/** Mittagsgeschäft endet mit dem Mittagsblock (Mo–Fr zu ab 14:30). */
+export const LUNCH_END = 14 * 60 + 30;
+export const EVENING_PEAK_START = 18 * 60;
+export const EVENING_PEAK_END = 21 * 60;
 
 /**
- * Eine Besetzungsregel: WO (Zeitspanne je Öffnungsblock) und WIE VIELE.
+ * Eine Besetzungsregel: WO (Zeitspanne je Öffnungsblock), WER (Bereiche) und WIE VIELE.
  *
  * minStaff/maxStaff sind der Wert eines Normaltags (Gewicht 1,0). Bei
  * scaled = true werden sie mit dem Tagesgewicht (DAY_WEIGHTS) multipliziert und
  * aufgerundet – Fr–So (1,5) tragen so automatisch das Anderthalbfache.
  *
  * Einzige Quelle für Scheduler, Độ phủ-Bericht und Tab „Tài liệu": wer die
- * Besetzung eines Ladens ändert, ändert nur diese Liste.
+ * Besetzung ändert, ändert nur diese Liste.
  */
 export type StaffingRule = {
   label: string;
@@ -31,6 +79,7 @@ export type StaffingRule = {
   minStaff: number;
   maxStaff: number;
   scaled: boolean;
+  groups: readonly StaffGroup[];
   /** Nur an diesen (effektiven) Wochentagen; fehlt = an jedem offenen Tag. */
   weekdays?: readonly WeekdayKey[];
   windows: (blocks: DayBlocks) => DayWindow[];
@@ -42,40 +91,28 @@ const clip = (from: number, to: number) => (blocks: DayBlocks): DayWindow[] =>
     .map((block) => ({ startMinutes: Math.max(from, block.startMinutes), endMinutes: Math.min(to, block.endMinutes) }))
     .filter((window) => window.endMinutes > window.startMinutes);
 
-/** Die ersten 60 Minuten eines Blocks (Aufsperren bzw. Wiederöffnen am Abend). */
-const firstHour = (block: DayWindow): DayWindow =>
-  ({ startMinutes: block.startMinutes, endMinutes: Math.min(block.startMinutes + 60, block.endMinutes) });
+const wholeBlocks = (blocks: DayBlocks): DayWindow[] =>
+  blocks.map((block) => ({ startMinutes: block.startMinutes, endMinutes: block.endMinutes }));
 
 export const STAFFING_RULES: readonly StaffingRule[] = [
+  { label: "Trong giờ mở cửa", when: "suốt mỗi khung mở", minStaff: 2, maxStaff: Infinity, scaled: false, groups: IN_HOUSE, windows: wholeBlocks },
+  { label: "Bếp", when: "suốt mỗi khung mở", minStaff: 1, maxStaff: Infinity, scaled: false, groups: ["KITCHEN"], windows: wholeBlocks },
+  // Phục vụ tối thiểu 2 người suốt giờ mở (quán yêu cầu). Cần ~134 h/tuần – nhóm phục vụ có ~140 h.
+  { label: "Phục vụ", when: "suốt mỗi khung mở (gồm người chưa gán nhóm)", minStaff: 2, maxStaff: Infinity, scaled: false, groups: ["SERVICE"], windows: wholeBlocks },
+  // Quy tắc bếp của quán: buổi trưa chỉ cần 2 người bếp – không hơn, để giờ bếp dồn cho buổi tối.
+  { label: "Bếp trưa", when: "mở cửa – 14:30", minStaff: 2, maxStaff: 2, scaled: false, groups: ["KITCHEN"], windows: clip(0, LUNCH_END) },
+  // Cao điểm tối: sàn và trần theo hệ số (T6–CN ×1,5). Trần giữ cho tối không hút hết người khỏi trưa.
+  { label: "Tối", when: "18:00–21:00", minStaff: 4, maxStaff: 8, scaled: true, groups: IN_HOUSE, windows: clip(EVENING_PEAK_START, EVENING_PEAK_END) },
+  // Lái xe: mỗi tối 1–2 người trong đúng giờ làm của lái xe.
   {
-    label: "Trong giờ mở cửa", when: "suốt mỗi khung mở", minStaff: 2, maxStaff: Infinity, scaled: false,
-    windows: (blocks) => blocks.map((block) => ({ startMinutes: block.startMinutes, endMinutes: block.endMinutes })),
+    label: "Lái xe", when: "18:00–21:00 (T2–T7)", minStaff: 1, maxStaff: 2, scaled: false, groups: ["DRIVER"],
+    weekdays: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"],
+    windows: clip(DRIVER_HOURS.default.startMinutes, DRIVER_HOURS.default.endMinutes),
   },
   {
-    label: "Mở cửa", when: "60′ đầu khung sáng", minStaff: 2, maxStaff: Infinity, scaled: false,
-    windows: (blocks) => blocks.filter((block) => block.startMinutes < 16 * 60).map(firstHour),
-  },
-  {
-    label: "Cuối ca trưa", when: "30′ cuối khung trưa", minStaff: 2, maxStaff: Infinity, scaled: false,
-    windows: (blocks) => blocks.filter((block) => block.endMinutes < 18 * 60)
-      .map((block) => ({ startMinutes: block.endMinutes - 30, endMinutes: block.endMinutes })),
-  },
-  {
-    label: "Đầu ca tối", when: "60′ đầu khung tối", minStaff: 2, maxStaff: Infinity, scaled: false,
-    windows: (blocks) => blocks.filter((block) => block.startMinutes >= 16 * 60).map(firstHour),
-  },
-  // Evening rush: a floor AND a ceiling. The ceiling matters most – without it
-  // the optimizer piles everyone into 18–20 h and the morning falls to its minimum.
-  // Trần 8 (×1,5 = 12): đủ rộng để đỉnh tối cao hơn trưa; đường nhu cầu quyết định số người.
-  { label: "Tối", when: "18:00–20:00", minStaff: 4, maxStaff: 8, scaled: true, windows: clip(18 * 60, 20 * 60) },
-  {
-    label: "Trưa CN", when: "12:00–14:00 (CN/lễ)", minStaff: 4, maxStaff: 8, scaled: true,
-    weekdays: ["sunday"], windows: clip(12 * 60, 14 * 60),
-  },
-  // Đóng cửa theo hệ số: 3–4 ngày thường, 5–6 ở T6–CN (tab „Tài liệu").
-  {
-    label: "Đóng cửa", when: "21:30–đóng cửa", minStaff: CLOSING_MIN, maxStaff: CLOSING_MAX, scaled: true,
-    windows: clip(CLOSING_START, 22 * 60 + 30),
+    label: "Lái xe CN", when: "18:00–22:00 (CN, ngày lễ)", minStaff: 1, maxStaff: 2, scaled: false, groups: ["DRIVER"],
+    weekdays: ["sunday"],
+    windows: clip(DRIVER_HOURS.sunday.startMinutes, DRIVER_HOURS.sunday.endMinutes),
   },
 ];
 
@@ -92,21 +129,28 @@ export function ruleAppliesOn(rule: StaffingRule, weekday: WeekdayKey): boolean 
   return !rule.weekdays || rule.weekdays.includes(weekday);
 }
 
-export function staffingWindows(blocks: DayBlocks, weekday: WeekdayKey): StaffingWindow[] {
-  return STAFFING_RULES.filter((rule) => ruleAppliesOn(rule, weekday)).flatMap((rule) => {
-    const range = ruleRange(rule, weekday);
-    return rule.windows(blocks).map((window) => ({ label: rule.label, ...window, ...range }));
-  });
+/**
+ * Besetzungsfenster eines Tages. present = vorhandene Bereiche: eine Regel für
+ * einen Bereich ohne Personen (z. B. noch niemand in der Küche) wird übersprungen, statt
+ * jeden Tag als unerfüllbar rot zu melden.
+ */
+export function staffingWindows(blocks: DayBlocks, weekday: WeekdayKey, present?: ReadonlySet<StaffGroup>): StaffingWindow[] {
+  return STAFFING_RULES
+    .filter((rule) => ruleAppliesOn(rule, weekday) && (!present || rule.groups.some((group) => present.has(group))))
+    .flatMap((rule) => {
+      const range = ruleRange(rule, weekday);
+      return rule.windows(blocks).map((window) => ({ label: rule.label, groups: rule.groups, ...window, ...range }));
+    });
 }
 
 // ── Đường nhu cầu trong ngày ────────────────────────────────────────────────
 /**
  * Nhu cầu tương đối theo giờ (1,0 = bình thường) – dạng „ngọn núi": chuẩn bị,
- * lên dốc, đỉnh, xuống dốc. Thuật toán chia GIỜ CÔNG CỦA NGÀY (đã nhân hệ số
- * ngày) theo đường này thành số người mục tiêu cho từng 30 phút, rồi phạt độ
- * lệch theo bình phương – nhờ vậy số người lên xuống mượt, không dồn cục.
+ * lên dốc, đỉnh, xuống dốc. Thuật toán chia GIỜ CÔNG TRONG QUÁN CỦA NGÀY (đã nhân
+ * hệ số ngày) theo đường này thành số người mục tiêu cho từng 30 phút, rồi phạt
+ * độ lệch theo bình phương – nhờ vậy số người lên xuống mượt, không dồn cục.
  *
- * CN (và ngày lễ mở cửa) có đỉnh trưa, nên cần người chuẩn bị TRƯỚC 12:00.
+ * AnAn: cao điểm chủ yếu buổi TỐI; trưa nhẹ hơn tối.
  */
 export type DemandBand = { startMinutes: number; endMinutes: number; level: number; label: string };
 
@@ -115,52 +159,49 @@ const band = (from: string, to: string, level: number, label: string): DemandBan
   return { startMinutes: toMinutes(from), endMinutes: toMinutes(to), level, label };
 };
 
-// Mượt theo từng ô 30 phút: mỗi bước lên/xuống tối đa ~0,2, để số người mục
-// tiêu không có bậc gấp (bậc 0,8 → 1,1 → 1,5 từng làm T6 nhảy 6 → 9 → 11).
-export const DEMAND_PROFILE: { weekday: readonly DemandBand[]; sunday: readonly DemandBand[] } = {
-  weekday: [
-    band("10:30", "11:00", 0.7, "Mở cửa, chuẩn bị"),
-    band("11:00", "11:30", 0.85, "Chuẩn bị trưa"),
-    band("11:30", "13:00", 1.0, "Trưa"),
-    band("13:00", "13:30", 0.9, "Cuối trưa"),
-    band("13:30", "14:30", 0.75, "Cuối trưa"),
-    band("16:30", "17:00", 0.8, "Mở ca tối"),
-    band("17:00", "17:30", 0.95, "Chuẩn bị tối"),
-    band("17:30", "18:00", 1.15, "Trước cao điểm"),
-    band("18:00", "18:30", 1.35, "Vào cao điểm"),
-    band("18:30", "19:30", 1.5, "Cao điểm tối"),
-    band("19:30", "20:00", 1.35, "Cao điểm tối"),
-    band("20:00", "20:30", 1.2, "Sau cao điểm"),
-    band("20:30", "21:00", 1.05, "Sau cao điểm"),
-    band("21:00", "21:30", 0.95, "Vãn khách"),
-    band("21:30", "22:30", 0.8, "Đóng cửa"),
+/** Höchster Wert der Kurve – Maßstab für „liegt in der Stoßzeit". */
+export const PEAK_LEVEL = 1.5;
+
+const EVENING: readonly DemandBand[] = [
+  band("17:00", "17:30", 0.75, "Mở ca tối, chuẩn bị"),
+  band("17:30", "18:00", 1.0, "Trước cao điểm"),
+  band("18:00", "18:30", 1.25, "Vào cao điểm"),
+  band("18:30", "20:30", 1.5, "Cao điểm tối"),
+  band("20:30", "21:00", 1.3, "Sau cao điểm"),
+  band("21:00", "21:30", 1.1, "Vãn khách"),
+  band("21:30", "22:00", 0.9, "Vãn khách"),
+  band("22:00", "22:30", 0.7, "Đóng cửa"),
+];
+
+// Mượt theo từng ô 30 phút: mỗi bước lên/xuống tối đa ~0,25.
+export const DEMAND_PROFILE: { default: readonly DemandBand[]; sunday: readonly DemandBand[] } = {
+  // T2–T7. Khung 14:30–17:00 chỉ dùng ở T7 (mở liền); T2–T6 đóng giờ đó.
+  default: [
+    band("11:00", "11:30", 0.6, "Mở cửa, chuẩn bị"),
+    band("11:30", "12:00", 0.75, "Trưa"),
+    band("12:00", "13:30", 0.85, "Trưa"),
+    band("13:30", "14:00", 0.75, "Cuối trưa"),
+    band("14:00", "14:30", 0.6, "Cuối trưa"),
+    band("14:30", "15:00", 0.55, "Chiều"),
+    band("15:00", "16:30", 0.5, "Chiều vắng"),
+    band("16:30", "17:00", 0.6, "Chiều"),
+    ...EVENING,
   ],
-  // CN: đông nhất là buổi TRƯA – đỉnh trưa cao hơn đỉnh tối, có dốc chuẩn bị từ 10:30.
+  // CN và ngày lễ mở từ 12:00.
   sunday: [
-    band("10:30", "11:00", 0.9, "Mở cửa, chuẩn bị"),
-    band("11:00", "11:30", 1.1, "Chuẩn bị trưa"),
-    band("11:30", "12:00", 1.3, "Trước cao điểm trưa"),
-    band("12:00", "12:30", 1.5, "Vào cao điểm trưa"),
-    band("12:30", "13:30", 1.6, "Cao điểm trưa"),
-    band("13:30", "14:00", 1.45, "Cao điểm trưa"),
-    band("14:00", "14:30", 1.2, "Sau trưa"),
-    band("14:30", "15:00", 1.0, "Chiều"),
-    band("15:00", "16:00", 0.85, "Chiều vắng"),
-    band("16:00", "16:30", 0.9, "Chiều"),
-    band("16:30", "17:00", 1.0, "Chiều"),
-    band("17:00", "17:30", 1.1, "Chuẩn bị tối"),
-    band("17:30", "18:00", 1.2, "Trước cao điểm"),
-    band("18:00", "19:30", 1.3, "Cao điểm tối"),
-    band("19:30", "20:00", 1.25, "Cao điểm tối"),
-    band("20:00", "20:30", 1.15, "Sau cao điểm"),
-    band("20:30", "21:00", 1.05, "Sau cao điểm"),
-    band("21:00", "21:30", 0.95, "Vãn khách"),
-    band("21:30", "22:30", 0.85, "Đóng cửa"),
+    band("12:00", "12:30", 0.6, "Mở cửa, chuẩn bị"),
+    band("12:30", "13:00", 0.75, "Trưa"),
+    band("13:00", "14:00", 0.85, "Trưa"),
+    band("14:00", "14:30", 0.7, "Cuối trưa"),
+    band("14:30", "15:00", 0.6, "Chiều"),
+    band("15:00", "16:30", 0.5, "Chiều vắng"),
+    band("16:30", "17:00", 0.6, "Chiều"),
+    ...EVENING,
   ],
 };
 
 export function demandProfileOf(weekday: WeekdayKey): readonly DemandBand[] {
-  return weekday === "sunday" ? DEMAND_PROFILE.sunday : DEMAND_PROFILE.weekday;
+  return weekday === "sunday" ? DEMAND_PROFILE.sunday : DEMAND_PROFILE.default;
 }
 
 /** Relative workload at a minute (1 outside all bands). */
@@ -203,10 +244,17 @@ export function coveragePoints(shifts: Shift[], from: number, to: number): numbe
   ]).filter((t) => t > from && t < to)])].sort((a, b) => a - b);
 }
 
+/** Kleinste und größte Zahl gleichzeitig arbeitender Personen in [from, to). */
+export function staffRange(shifts: Shift[], from: number, to: number): { min: number; max: number } {
+  const points = coveragePoints(shifts, from, to).slice(0, -1);
+  const counts = points.map((minute) => new Set(shifts.filter((shift) => workingAt(shift, minute)).map((shift) => shift.employeeId)).size);
+  return { min: counts.length ? Math.min(...counts) : 0, max: counts.length ? Math.max(...counts) : 0 };
+}
+
 /**
  * Giờ công mục tiêu mỗi ngày, chuẩn hoá trong từng ISO-week (không mượn giữa các tuần):
  *   giờ ngày = giờ tuần × (hệ số × phút mở) ÷ Σ(hệ số × phút mở)
- * Nhân phút mở để hệ số là MẬT ĐỘ người: CN mở 11,5h không thưa hơn T6/T7 mở 10h.
+ * Nhân phút mở để hệ số là MẬT ĐỘ người: T7 mở 11,5h không thưa hơn T6 mở 9h.
  * Không truyền openMinutesOf => chỉ theo hệ số.
  */
 export function weightedDailyTargets(

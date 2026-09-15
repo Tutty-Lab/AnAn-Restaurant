@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { MONTH_NAMES_VI } from "../lib/dateFormat";
+import { publicHolidayNames } from "../lib/holidays";
 import { monthLabel } from "../lib/shiftOps";
+import type { DateOverride } from "../lib/workHours";
 import { clampScheduleYear, SCHEDULE_YEARS, SCHEDULE_YEAR_RANGE_LABEL } from "../lib/years";
 
 const selectClass =
   "w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
+
+/** "2026-10-03" -> "03.10" */
+const dayMonth = (isoDate: string) => `${isoDate.slice(8, 10)}.${isoDate.slice(5, 7)}`;
 
 /**
  * Popup „Tạo lịch làm việc": chọn tháng + năm cần tạo.
@@ -12,20 +17,27 @@ const selectClass =
  * App chỉ giữ lịch của MỘT tháng. Tạo tháng khác sẽ thay lịch đang có, và tạo
  * lại tháng đã in sẽ mở khoá – nên popup nói rõ trước khi bấm. Không dùng
  * window.confirm: trình duyệt nhúng (Messenger, Zalo) hay nuốt hộp thoại gốc.
+ *
+ * Ngày lễ và ngày đặc biệt (Cài đặt) quyết định giờ mở của từng ngày, nên popup
+ * nhắc kiểm tra chúng TRƯỚC khi tạo và liệt kê những ngày đó của tháng đã chọn.
  */
 export function GenerateScheduleDialog({
   currentYear,
   currentMonth,
   hasShifts,
   isLocked,
+  dateOverrides,
   onConfirm,
+  onOpenSettings,
   onClose,
 }: {
   currentYear: number;
   currentMonth: number;
   hasShifts: boolean;
   isLocked: boolean;
+  dateOverrides: DateOverride[];
   onConfirm: (target: { year: number; month: number }) => void;
+  onOpenSettings: () => void;
   onClose: () => void;
 }) {
   const [year, setYear] = useState(() => clampScheduleYear(currentYear));
@@ -44,6 +56,9 @@ export function GenerateScheduleDialog({
   const sameMonth = year === currentYear && month === currentMonth;
   const current = monthLabel(currentYear, currentMonth);
   const target = monthLabel(year, month);
+  const prefix = `${year}-${String(month).padStart(2, "0")}-`;
+  const holidays = [...publicHolidayNames(year)].filter(([date]) => date.startsWith(prefix)).sort(([a], [b]) => a.localeCompare(b));
+  const specialDays = dateOverrides.filter((override) => override.date.startsWith(prefix)).sort((a, b) => a.date.localeCompare(b.date));
 
   return (
     <div
@@ -91,6 +106,31 @@ export function GenerateScheduleDialog({
             </label>
           </div>
           <p className="text-xs text-slate-500">Chỉ tạo và in lịch cho các năm {SCHEDULE_YEAR_RANGE_LABEL}.</p>
+
+          <div className="rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+            <p className="font-medium">
+              Nếu tháng này có ngày nghỉ lễ hay giờ mở cửa đặc biệt, hãy chỉnh lại ở mục Cài đặt trước khi tạo lịch!
+            </p>
+            <ul className="mt-1.5 space-y-0.5 text-xs">
+              <li>
+                <b>Ngày lễ {target}:</b>{" "}
+                {holidays.length > 0 ? holidays.map(([date, name]) => `${dayMonth(date)} ${name}`).join(" · ") : "không có"}
+              </li>
+              <li>
+                <b>Ngày đặc biệt đã nhập:</b>{" "}
+                {specialDays.length > 0
+                  ? specialDays.map((day) => `${dayMonth(day.date)} ${day.closed ? "đóng cửa" : "giờ riêng"}${day.note ? ` (${day.note})` : ""}`).join(" · ")
+                  : "chưa có"}
+              </li>
+            </ul>
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="mt-2 rounded border border-sky-300 bg-white px-2.5 py-1 text-xs font-medium text-sky-900 hover:bg-sky-100"
+            >
+              Mở Cài đặt
+            </button>
+          </div>
 
           {isLocked && (
             <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">

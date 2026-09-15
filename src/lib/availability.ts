@@ -28,11 +28,24 @@ export function hasStarted(employee: Employee, isoDate: string): boolean {
   return employee.startDate == null || isoDate >= employee.startDate;
 }
 
+/** Liegt das Datum in einer Berufsschulzeit (Azubi, kỳ học)? */
+export function inSchoolPeriod(employee: Employee, isoDate: string): boolean {
+  return (employee.schoolPeriods ?? []).some((period) => isoDate >= period.start && isoDate <= period.end);
+}
+
+/**
+ * Zählt dieser Tag für den Vertrag? Vor dem Eintritt und in der Schulzeit nicht –
+ * dort schuldet die Person keine Stunden im Laden.
+ */
+export function countsForContract(employee: Employee, isoDate: string): boolean {
+  return hasStarted(employee, isoDate) && !inSchoolPeriod(employee, isoDate);
+}
+
 /**
  * Die eine Frage, die jeder Planungsschritt stellen muss: darf diese Person an
- * diesem Datum arbeiten? (fester freier Wochentag oder ein Eintritt nach
- * diesem Tag sprechen dagegen)
+ * diesem Datum arbeiten? (fester freier Wochentag, ein Eintritt nach diesem Tag
+ * oder die Berufsschule sprechen dagegen)
  */
 export function mayWorkOn(employee: Employee, isoDate: string): boolean {
-  return worksOnWeekday(employee, isoDate) && hasStarted(employee, isoDate);
+  return worksOnWeekday(employee, isoDate) && countsForContract(employee, isoDate);
 }

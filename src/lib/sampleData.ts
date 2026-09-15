@@ -1,8 +1,8 @@
 // ============================================================================
-// Beispieldaten: die heutige Besetzung von Viet Cuisine (12 Personen, Wochenverträge).
+// Startbelegschaft des Restaurant AnAn (15 Personen) laut Angabe des Betriebs.
 // ============================================================================
 
-import type { Employee, Schedule } from "../types";
+import type { Employee, Schedule, WorkRole } from "../types";
 import { DEFAULT_WORK_HOURS } from "./workHours";
 import { COMPANY_ADDRESS, COMPANY_NAME } from "./company";
 
@@ -12,46 +12,57 @@ export function makeEmployee(
   employmentType: Employee["employmentType"],
   targetHours: number,
 ): Employee {
-  return { id, name, employmentType, targetMinutes: targetHours * 60 };
+  return { id, name, employmentType, targetMinutes: Math.round(targetHours * 60) };
 }
 
-/** Mitarbeiter mit WOCHENvertrag (Viet Cuisine rechnet in Wochenstunden). */
+/** Mitarbeiter mit MONATSvertrag (z. B. 92,70 h/Monat). */
+export function makeMonthly(
+  id: string,
+  name: string,
+  employmentType: Employee["employmentType"],
+  monthlyHours: number,
+  workRole?: WorkRole,
+): Employee {
+  return { id, name, employmentType, targetMinutes: Math.round(monthlyHours * 60), ...(workRole ? { workRole } : {}) };
+}
+
+/** Mitarbeiter mit WOCHENvertrag (Azubi: 39 h/Woche). */
 export function makeWeekly(
   id: string,
   name: string,
   employmentType: Employee["employmentType"],
   weeklyHours: number,
+  workRole?: WorkRole,
 ): Employee {
-  return { id, name, employmentType, targetMinutes: 0, weeklyHours };
+  return { id, name, employmentType, targetMinutes: 0, weeklyHours, ...(workRole ? { workRole } : {}) };
 }
 
 /**
- * Belegschaft laut Angabe des Betriebs (Viet Cuisine GmbH), 12 Personen, alle
- * mit WOCHENstunden. Vollzeit = 39 h/Woche.
+ * Belegschaft laut Angabe des Betriebs (Restaurant AnAn).
+ *
+ * Bereiche: 1, 5, 6, 7, 9, 10, 11 Bếp · 2, 4 Lái xe · 8, 12 Phục vụ (bồi).
+ * 3, 13, 14, 15 sind noch keinem Bereich zugeordnet – der Admin trägt das nach.
  *
  * ANNAHMEN, die der Betrieb bestätigen sollte:
- *   - Anstellungsart aus den Wochenstunden abgeleitet: 39–40 h = Vollzeit,
- *     33/35/36 h = Teilzeit, 10 h = Minijob.
- *   - Die Kraft "chỉ làm ca 6:30–14:30" ist NICHT fest einer Person zugeordnet;
- *     im Betrieb hakt man die feste Frühschicht bei der richtigen Person an
- *     (Tab Nhân viên). Hier steht sie deshalb noch bei niemandem.
- *   - Mitten im Monat startende/wechselnde Verträge (Bùi ab 7.9., Bảo ab 10.9.,
- *     Nguyệt/Đạt ab Oktober 39 h) sind hier mit ihrem SEPTEMBER-Wert erfasst;
- *     der Teilmonat wird über das Eintrittsdatum (startDate) abgebildet.
+ *   - Ohne angegebene Art: über 50 h/Monat = Teilzeit, sonst Minijob.
+ *   - Berufsschulzeiten der Azubis sind noch nicht bekannt (Tab Nhân viên).
  */
 export const SAMPLE_EMPLOYEES: Employee[] = [
-  makeWeekly("ma-1", "Nguyễn Kiều Hồng Nhung", "VOLLZEIT", 39),
-  makeWeekly("ma-2", "Nguyễn Tuấn Anh", "TEILZEIT", 33),
-  makeWeekly("ma-3", "Nguyễn Việt Văn", "VOLLZEIT", 40),
-  makeWeekly("ma-4", "Nguyễn Thị Tân", "VOLLZEIT", 40),
-  makeWeekly("ma-5", "Trịnh Xuân Thành", "VOLLZEIT", 40),
-  makeWeekly("ma-6", "Đào Thị Hào", "TEILZEIT", 36),
-  makeWeekly("ma-7", "Nguyễn Đức Đông", "VOLLZEIT", 39),
-  makeWeekly("ma-8", "Nguyễn Thị Khánh Huyền", "VOLLZEIT", 39),
-  makeWeekly("ma-9", "Nguyễn Thị Nguyệt", "MINIJOB", 10),
-  makeWeekly("ma-10", "Đoàn Thành Đạt", "MINIJOB", 10),
-  makeWeekly("ma-11", "Bùi Văn Vũ", "VOLLZEIT", 39),
-  makeWeekly("ma-12", "Nguyễn Hữu Bảo", "TEILZEIT", 35),
+  makeMonthly("an-1", "Ngoc Dat Doan", "TEILZEIT", 92.7, "KITCHEN"),
+  makeMonthly("an-2", "Hiep Doan", "TEILZEIT", 73.94, "DRIVER"),
+  makeWeekly("an-3", "Vũ Thị Kim Ngân", "AZUBI", 39),
+  makeMonthly("an-4", "Trung Dung Duong", "MINIJOB", 43.51, "DRIVER"),
+  makeMonthly("an-5", "Cong Tri Duong", "VOLLZEIT", 173.81, "KITCHEN"),
+  makeMonthly("an-6", "Thanh Tam Le", "VOLLZEIT", 173.81, "KITCHEN"),
+  makeMonthly("an-7", "Van Hao Nguyen", "MINIJOB", 39, "KITCHEN"),
+  makeMonthly("an-8", "Duc Tuan Tran", "MINIJOB", 43.51, "SERVICE"),
+  makeMonthly("an-9", "Thi Thuy Nhu", "VOLLZEIT", 173.81, "KITCHEN"),
+  makeMonthly("an-10", "Van Trang Tran", "VOLLZEIT", 173.81, "KITCHEN"),
+  makeMonthly("an-11", "Anh Tuan Pham", "VOLLZEIT", 173.81, "KITCHEN"),
+  makeMonthly("an-12", "Huy Nam Nguyen", "MINIJOB", 28.2, "SERVICE"),
+  makeMonthly("an-13", "Quoc Dung Nguyen", "MINIJOB", 28.2),
+  makeWeekly("an-14", "Hoàng Văn Hậu", "AZUBI", 39),
+  makeWeekly("an-15", "Bảo Long Nguyễn", "AZUBI", 39),
 ];
 
 export function createSampleSchedule(): Schedule {
@@ -67,48 +78,16 @@ export function createSampleSchedule(): Schedule {
   };
 }
 
-/** Ein einzelnes ISO-Datum "yyyy-MM-dd" – für den ersten Arbeitstag (Eintritt). */
-function iso(year: number, month: number, day: number): string {
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-/**
- * Startbelegschaft, die die App beim allerersten Öffnen zeigt (September 2026),
- * genau die zwölf Personen aus der Angabe des Betriebs mit ihren Wochenstunden.
- *
- * Mitten im Monat startende Verträge tragen ihr Eintrittsdatum (startDate):
- * Tage davor sind gesperrt UND zählen nicht ins Monats-Soll, sonst würden sie
- * dauerhaft als „zu wenig geplant" gemeldet.
- *   - Bùi Văn Vũ arbeitet erst ab 7.9.
- *   - Nguyễn Hữu Bảo arbeitet erst ab 10.9.
- * Nguyễn Thị Nguyệt und Đoàn Thành Đạt stehen mit ihrem September-Wert (10 h);
- * ab Oktober trägt der Betrieb ihre 39 h ein.
- */
+/** Startbelegschaft, die die App beim allerersten Öffnen zeigt (Oktober 2026). */
 export function createInitialSchedule(): Schedule {
-  const year = 2026;
-  const month = 9;
-  const employees: Employee[] = [
-    makeWeekly("ma-1", "Nguyễn Kiều Hồng Nhung", "VOLLZEIT", 39),
-    makeWeekly("ma-2", "Nguyễn Tuấn Anh", "TEILZEIT", 33),
-    makeWeekly("ma-3", "Nguyễn Việt Văn", "VOLLZEIT", 40),
-    makeWeekly("ma-4", "Nguyễn Thị Tân", "VOLLZEIT", 40),
-    makeWeekly("ma-5", "Trịnh Xuân Thành", "VOLLZEIT", 40),
-    makeWeekly("ma-6", "Đào Thị Hào", "TEILZEIT", 36),
-    makeWeekly("ma-7", "Nguyễn Đức Đông", "VOLLZEIT", 39),
-    makeWeekly("ma-8", "Nguyễn Thị Khánh Huyền", "VOLLZEIT", 39),
-    makeWeekly("ma-9", "Nguyễn Thị Nguyệt", "MINIJOB", 10),
-    makeWeekly("ma-10", "Đoàn Thành Đạt", "MINIJOB", 10),
-    { ...makeWeekly("ma-11", "Bùi Văn Vũ", "VOLLZEIT", 39), startDate: iso(year, month, 7) },
-    { ...makeWeekly("ma-12", "Nguyễn Hữu Bảo", "TEILZEIT", 35), startDate: iso(year, month, 10) },
-  ];
   return {
     companyName: COMPANY_NAME,
     address: COMPANY_ADDRESS,
-    year,
-    month,
+    year: 2026,
+    month: 10,
     workHours: structuredClone(DEFAULT_WORK_HOURS),
     dateOverrides: [],
-    employees,
+    employees: SAMPLE_EMPLOYEES.map((e) => ({ ...e })),
     shifts: [],
   };
 }

@@ -10,6 +10,7 @@ import { MONTH_NAMES_DE } from "../lib/dateFormat";
 import { publicHolidayNames } from "../lib/holidays";
 import { format } from "date-fns";
 import { employmentLabelDe } from "../lib/employment";
+import { inSchoolPeriod } from "../lib/availability";
 
 // Deutscher Monats-Titel für das offizielle Dokument.
 function monthLabelDe(year: number, month: number): string {
@@ -108,9 +109,11 @@ export function StundenzettelPage({
             if (dienste.length === 0) {
               const bemerkung = closed
                 ? closed.note || "Betriebsruhe"
-                : holiday
-                  ? `Frei (Feiertag: ${holiday})`
-                  : "Frei";
+                : inSchoolPeriod(employee, d)
+                  ? "Berufsschule"
+                  : holiday
+                    ? `Frei (Feiertag: ${holiday})`
+                    : "Frei";
               return (
                 <tr key={d} className={rowCls}>
                   <Td className="whitespace-nowrap align-middle">

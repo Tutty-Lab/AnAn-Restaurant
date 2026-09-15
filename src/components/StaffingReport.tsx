@@ -14,8 +14,7 @@ export function StaffingReport({ analysis }: { analysis: ScheduleAnalysis }) {
     const week = weekStartOf(day.date);
     weeks.set(week, [...(weeks.get(week) ?? []), day]);
   }
-  const complete = [...weeks].filter(([, days]) =>
-    new Set(days.map((day) => day.weekday)).size === 6 && !days.some((day) => day.weekday === "monday"));
+  const complete = [...weeks].filter(([, days]) => new Set(days.map((day) => day.weekday)).size === 7);
   const gaps = open.flatMap((day) => day.peaks.filter((peak) => !peak.ok).map((peak) => ({ day, peak })));
 
   return (
@@ -27,7 +26,7 @@ export function StaffingReport({ analysis }: { analysis: ScheduleAnalysis }) {
       </summary>
       <div className="mt-3 overflow-x-auto">
         <table className="min-w-[650px] border-collapse text-xs">
-          <thead><tr><th className="border px-2 py-1 text-left">Ngày</th><th className="border px-2 py-1">Giờ mục tiêu</th><th className="border px-2 py-1">Giờ đã xếp</th><th className="border px-2 py-1 text-left">Kiểm tra nhân sự</th></tr></thead>
+          <thead><tr><th className="border px-2 py-1 text-left">Ngày</th><th className="border px-2 py-1">Giờ mục tiêu</th><th className="border px-2 py-1">Giờ đã xếp (trong quán)</th><th className="border px-2 py-1 text-left">Kiểm tra nhân sự</th></tr></thead>
           <tbody>{open.map((day) => <tr key={day.date}>
             <td className="border px-2 py-1">{day.date.split("-").reverse().join(".")} · {WEEKDAY_SHORT_VI[day.weekday]}</td>
             <td className="border px-2 py-1 text-right">{hours(day.targetHours)}</td>
@@ -41,7 +40,7 @@ export function StaffingReport({ analysis }: { analysis: ScheduleAnalysis }) {
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
         {complete.map(([week, days]) => {
-          const normal = days.filter((day) => ["tuesday", "wednesday", "thursday"].includes(day.weekday));
+          const normal = days.filter((day) => ["monday", "tuesday", "wednesday", "thursday"].includes(day.weekday));
           const busy = days.filter((day) => ["friday", "saturday", "sunday"].includes(day.weekday));
           const average = (items: typeof days) => items.reduce((sum, day) => sum + day.paidHours, 0) / items.length;
           const ratio = average(normal) > 0 ? average(busy) / average(normal) : 0;

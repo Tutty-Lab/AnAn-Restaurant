@@ -16,13 +16,11 @@ export type WeekdayKey =
 /**
  * Nachfrage-Gewichte je Wochentag (keine Mitarbeiterzahlen!).
  *
- * Angabe des Betriebs: am stärksten sind Freitag, Samstag und Sonntag –
- * "cao gấp rưỡi" (rund das Anderthalbfache eines normalen Tages). Deshalb
- * stehen Fr/Sa/So auf 1,5 und die übrigen offenen Tage (Di–Do) auf 1,0.
- * Montag ist geschlossen.
+ * Angabe des Betriebs (Restaurant AnAn): am stärksten sind Freitag, Samstag
+ * und Sonntag, vor allem abends. Fr/Sa/So stehen auf 1,5, Mo–Do auf 1,0.
  */
 export const DAY_WEIGHTS: Record<WeekdayKey, number> = {
-  monday: 1.0, // geschlossen (Gewicht nur relevant, falls doch geöffnet)
+  monday: 1.0,
   tuesday: 1.0,
   wednesday: 1.0,
   thursday: 1.0,

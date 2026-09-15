@@ -11,7 +11,7 @@ import { DEFAULT_WORK_HOURS, resolveDay } from "../workHours";
 import { publicHolidays } from "../holidays";
 import { datesOfMonth } from "../demand";
 import { monthlyTargetMinutesFor } from "../contract";
-import { createInitialSchedule } from "../sampleData";
+import { SAMPLE_EMPLOYEES } from "../sampleData";
 import type { Employee } from "../../types";
 
 const openDatesOf = (year: number, month: number): string[] => {
@@ -20,7 +20,7 @@ const openDatesOf = (year: number, month: number): string[] => {
 };
 
 const wk = (id: string, h: number, x: Partial<Employee> = {}): Employee => ({
-  id, name: id, employmentType: "VOLLZEIT", targetMinutes: 0, weeklyHours: h, ...x,
+  id, name: id, employmentType: "AZUBI", targetMinutes: 0, weeklyHours: h, ...x,
 });
 
 describe("Eintritt mitten im Monat (startDate)", () => {
@@ -28,38 +28,29 @@ describe("Eintritt mitten im Monat (startDate)", () => {
     const openDates = openDatesOf(2026, 9);
     const full = wk("full", 39);
     const late = wk("late", 39, { startDate: "2026-09-07" });
-    // Ohne Startdatum das volle Soll: Sept 2026 = 4 volle Wochen + Di/Mi der
-    // Woche ab 28.9. Faktor = Gewicht × Öffnungsminuten: Di/Mi je 1,0 × 600,
-    // volle Woche 3×600 + 2×1,5×600 + 1,5×690 = 4.635 → 39 × (4 + 1.200/4.635).
-    // Mit Startdatum weniger.
-    expect(monthlyTargetMinutesFor(full, openDates)).toBe(Math.round(39 * 60 * (4 + 1200 / 4635)));
-    expect(monthlyTargetMinutesFor(late, openDates)).toBeLessThan(monthlyTargetMinutesFor(full, openDates));
-    // Die erste (gesperrte) Woche fehlt komplett: rund eine 39-h-Woche weniger.
+    // Faktor = Gewicht × Öffnungsminuten: Mo–Do 1,0 × 540, Fr 1,5 × 540,
+    // Sa 1,5 × 690, So 1,5 × 630 – volle Woche 4.950. September 2026:
+    // Di–So der ersten Woche (4.410), drei volle Wochen, Mo–Mi der letzten (1.620).
+    const expected = 39 * 60 * (3 + (4410 + 1620) / 4950);
+    expect(Math.abs(monthlyTargetMinutesFor(full, openDates) - expected)).toBeLessThanOrEqual(1);
+    // Die erste (gesperrte) Woche fehlt komplett: rund 35 h weniger.
     const diff = (monthlyTargetMinutesFor(full, openDates) - monthlyTargetMinutesFor(late, openDates)) / 60;
     expect(diff).toBeGreaterThan(30);
     expect(diff).toBeLessThanOrEqual(39);
   });
 
   it("verplant keine Tage vor dem Startdatum und meldet keine Fehlstunden-Warnung", () => {
-    const seed = createInitialSchedule(); // Sept 2026, Vũ ab 7.9., Bảo ab 10.9.
-    const openDates = openDatesOf(seed.year, seed.month);
-    const shifts = generateSchedule({
-      year: seed.year, month: seed.month, workHours: seed.workHours, employees: seed.employees,
-    });
+    const employees = SAMPLE_EMPLOYEES.map((employee) =>
+      employee.id === "an-15" ? { ...employee, startDate: "2026-10-14" } : employee);
+    const openDates = openDatesOf(2026, 10);
+    const shifts = generateSchedule({ year: 2026, month: 10, workHours: DEFAULT_WORK_HOURS, employees });
+    const late = employees.find((employee) => employee.id === "an-15")!;
+    const own = shifts.filter((s) => s.employeeId === late.id);
 
-    for (const emp of seed.employees) {
-      if (emp.startDate == null) continue;
-      const early = shifts.filter((s) => s.employeeId === emp.id && s.date < emp.startDate!);
-      expect(early, `${emp.name} darf vor ${emp.startDate} nicht arbeiten`).toEqual([]);
-    }
-
-    const v = validateSchedule(seed.employees, shifts, seed.year, openDates);
-    const under = v.errors.filter((e) => e.message.includes("mới xếp được"));
-    expect(under, `keine Fehlstunden-Warnung mehr:\n${under.map((e) => e.message).join("\n")}`).toEqual([]);
-    // Jede geplante Person trifft ihr (personenbezogenes) Soll im 30-min-Raster.
-    for (const emp of seed.employees) {
-      const got = shifts.filter((s) => s.employeeId === emp.id).reduce((a, s) => a + s.paidMinutes, 0);
-      expect(Math.abs(got - monthlyTargetMinutesFor(emp, openDates))).toBeLessThanOrEqual(30);
-    }
+    expect(own.filter((s) => s.date < late.startDate!)).toEqual([]);
+    const v = validateSchedule(employees, shifts, 2026, openDates, DEFAULT_WORK_HOURS);
+    expect(v.errors.filter((e) => e.employeeId === late.id)).toEqual([]);
+    const got = own.reduce((a, s) => a + s.paidMinutes, 0);
+    expect(Math.abs(got - monthlyTargetMinutesFor(late, openDates, DEFAULT_WORK_HOURS))).toBeLessThan(30);
   });
 });

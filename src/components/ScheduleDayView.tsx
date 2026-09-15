@@ -13,7 +13,7 @@ import { isoLabel } from "../lib/shiftOps";
 import { publicHolidayNames, publicHolidays } from "../lib/holidays";
 import { isDayClosed } from "../lib/workHours";
 import { format } from "date-fns";
-import { employmentLabelVi } from "../lib/employment";
+import { employmentLabelVi, roleLabelVi } from "../lib/employment";
 import { PauseLabel } from "./PauseLabel";
 
 /** Chế độ xem theo từng ngày – tối ưu cho điện thoại (không cuộn ngang). */
@@ -164,7 +164,7 @@ export function ScheduleDayView({
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{emp.name}</div>
                   <div className="text-xs opacity-80">
-                    {employmentLabelVi(emp.employmentType)} ·{" "}
+                    {employmentLabelVi(emp.employmentType)} · {roleLabelVi(emp.workRole)} ·{" "}
                     {isEarly ? "Ca sáng" : "Ca tối"}
                   </div>
                 </div>

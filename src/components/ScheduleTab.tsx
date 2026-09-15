@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
 import type { Shift } from "../types";
 import {
@@ -9,18 +9,17 @@ import {
 } from "../lib/demand";
 import { minutesToShortHours, minutesToTime } from "../lib/time";
 import { signedHours } from "../lib/dateFormat";
-import { monthLabel } from "../lib/shiftOps";
 import { isDayClosed } from "../lib/workHours";
 import { publicHolidays } from "../lib/holidays";
 import { ShiftCellEditor } from "./ShiftCellEditor";
 import { ScheduleDayView } from "./ScheduleDayView";
 import { weeksOfMonth } from "../lib/weeks";
-import { employmentShortVi } from "../lib/employment";
+import { employmentShortVi, roleLabelVi } from "../lib/employment";
+import { staffGroupOf } from "../lib/staffing";
 import { monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "../lib/contract";
 import { StaffingReport } from "./StaffingReport";
 import { PauseLabel } from "./PauseLabel";
 import { CoverageChart } from "./CoverageChart";
-import { GenerateScheduleDialog } from "./GenerateScheduleDialog";
 
 function isWeekendKey(iso: string): boolean {
   const k = weekdayKeyOf(parseIsoDate(iso));
@@ -36,28 +35,9 @@ function cellClass(shift: Shift | undefined): string {
 export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   // Drucken (Monat/Woche) und Entsperren liegen im Tab „Bảng chấm công" –
   // dort sitzt alles, was Papier erzeugt.
-  const { schedule, validation, generate, genError, genStamp, isLocked, openDates } = store;
+  // Nút „Tạo lịch làm việc" và popup nằm trên thanh tab (App.tsx).
+  const { schedule, validation, generate, isLocked, openDates } = store;
   const [selected, setSelected] = useState<{ employeeId: string; date: string } | null>(null);
-  // Popup „Tạo lịch làm việc" (chọn tháng/năm). Không dùng hộp thoại gốc –
-  // trình duyệt nhúng (Messenger, Zalo) hay nuốt nó.
-  const [genDialogOpen, setGenDialogOpen] = useState(false);
-  // Kurze Erfolgsmeldung nach dem Erzeugen. genStamp steigt bei jedem
-  // erfolgreichen Lauf; der Effekt liest DANACH die (frische) Prüfung aus.
-  const [toast, setToast] = useState<string | null>(null);
-  useEffect(() => {
-    if (genStamp === 0) return;
-    const fehler = validation.errors.filter((e) => e.severity !== "warning").length;
-    const warn = validation.errors.filter((e) => e.severity === "warning").length;
-    setToast(
-      fehler > 0
-        ? `Đã tạo lịch — nhưng còn ${fehler} lỗi, xem chi tiết ở phần trạng thái.`
-        : warn > 0
-          ? `✓ Đã tạo lịch mới (còn ${warn} cảnh báo thiếu giờ — bấm (i) để xem).`
-          : "✓ Đã tạo lịch mới — hợp lệ, giờ chia theo hệ số ngày.",
-    );
-    const t = window.setTimeout(() => setToast(null), 5000);
-    return () => window.clearTimeout(t);
-  }, [genStamp]); // eslint-disable-line react-hooks/exhaustive-deps
   // Mặc định: điện thoại -> xem theo ngày, màn lớn -> bảng tháng.
   const [view, setView] = useState<"grid" | "day" | "week" | "coverage">(() =>
     typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches ? "day" : "grid",
@@ -122,10 +102,14 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
     return set;
   }, [dates, schedule.workHours, schedule.year, schedule.dateOverrides]);
 
-  // Tổng theo ngày cho các dòng chân bảng.
+  // Tổng theo ngày cho các dòng chân bảng. Theo nhóm: số NGƯỜI (ca gãy trưa + tối tính 1).
   const dayStats = useMemo(() => {
-    const stats = new Map<string, { count: number; total: number; early: number; late: number }>();
-    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, late: 0 });
+    const employeesById = new Map(schedule.employees.map((e) => [e.id, e] as const));
+    const stats = new Map<string, {
+      count: number; total: number; early: number; late: number;
+      kitchen: Set<string>; service: Set<string>; driver: Set<string>;
+    }>();
+    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, late: 0, kitchen: new Set(), service: new Set(), driver: new Set() });
     for (const s of schedule.shifts) {
       const st = stats.get(s.date);
       if (!st) continue;
@@ -133,9 +117,12 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       st.total += s.paidMinutes;
       if (s.shiftType === "EARLY") st.early += 1;
       else st.late += 1; // LATE hoặc CUSTOM tính là ca tối
+      const group = staffGroupOf(employeesById.get(s.employeeId));
+      (group === "KITCHEN" ? st.kitchen : group === "DRIVER" ? st.driver : st.service).add(s.employeeId);
     }
     return stats;
-  }, [dates, schedule.shifts]);
+  }, [dates, schedule.shifts, schedule.employees]);
+  const hasDrivers = schedule.employees.some((e) => e.workRole === "DRIVER");
 
   const hasSplitSunday = useMemo(() => {
     const holidays = publicHolidays(schedule.year);
@@ -158,63 +145,6 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
       {/* Alles Sichtbare liegt im no-print-Block; beim Drucken bleibt nur der
           Druckbereich ganz unten übrig. */}
       <div className="no-print">
-      {/* Thanh thao tác */}
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <button
-          type="button"
-          onClick={() => setGenDialogOpen(true)}
-          disabled={!hasEmployees}
-          className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
-        >
-          Tạo lịch làm việc
-        </button>
-        <span className="ml-auto text-sm text-slate-500">{monthLabel(schedule.year, schedule.month)}</span>
-      </div>
-
-      {/* Popup chọn tháng/năm – cảnh báo thay lịch tháng khác và mở khóa tháng đã in nằm trong đó. */}
-      {genDialogOpen && (
-        <GenerateScheduleDialog
-          currentYear={schedule.year}
-          currentMonth={schedule.month}
-          hasShifts={schedule.shifts.length > 0}
-          isLocked={isLocked}
-          onClose={() => setGenDialogOpen(false)}
-          onConfirm={(target) => {
-            setGenDialogOpen(false);
-            generate(target);
-          }}
-        />
-      )}
-
-      {genError && (
-        <div role="alert" className="mb-3 rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-          {genError}
-        </div>
-      )}
-
-      {/* Erfolgsmeldung nach „Tạo lịch". Verschwindet nach ein paar Sekunden;
-          Details zu Warnungen/Fehlern stehen aufklappbar oben im Dashboard. */}
-      {toast && (
-        <div
-          role="status"
-          className={`mb-3 flex items-start gap-2 rounded border px-3 py-2 text-sm ${
-            toast.startsWith("✓")
-              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-              : "bg-amber-50 border-amber-200 text-amber-900"
-          }`}
-        >
-          <span className="flex-1">{toast}</span>
-          <button
-            type="button"
-            onClick={() => setToast(null)}
-            className="shrink-0 opacity-60 hover:opacity-100"
-            aria-label="Đóng"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
       {hasSplitSunday && (
         <div className="mb-3 rounded-lg bg-blue-50 border border-blue-300 p-3 text-blue-950 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
           <div>
@@ -319,12 +249,6 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
 
       {schedule.shifts.length > 0 && <StaffingReport analysis={store.analysis} />}
 
-      {genError && (
-        <div className="mb-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2">
-          {genError}
-        </div>
-      )}
-
       {/* Lỗi kiểm tra */}
       {!validation.valid && schedule.shifts.length > 0 && (
         <div className="mb-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2">
@@ -422,8 +346,9 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
                     <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
                       {emp.name}
                     </td>
-                    <td className="border-b border-slate-100 px-2 py-1 text-slate-500">
+                    <td className="border-b border-slate-100 px-2 py-1 text-slate-500 whitespace-nowrap">
                       {employmentShortVi(emp.employmentType)}
+                      <span className="block text-[10px] text-slate-400">{roleLabelVi(emp.workRole)}</span>
                     </td>
                     <td className="border-b border-slate-100 px-2 py-1 text-right text-slate-500">
                       {minutesToShortHours(sollMin)}
@@ -495,6 +420,11 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
             </tbody>
             <tfoot>
               <SummaryRow label="Số nhân viên" dates={gridDates} value={(d) => String(dayStats.get(d)!.count)} />
+              <SummaryRow label="Bếp" labelClass="text-orange-700" dates={gridDates} value={(d) => String(dayStats.get(d)!.kitchen.size)} />
+              <SummaryRow label="Phục vụ (bồi)" labelClass="text-sky-700" dates={gridDates} value={(d) => String(dayStats.get(d)!.service.size)} />
+              {hasDrivers && (
+                <SummaryRow label="Lái xe" labelClass="text-violet-700" dates={gridDates} value={(d) => String(dayStats.get(d)!.driver.size)} />
+              )}
               <SummaryRow
                 label="Tổng giờ"
                 dates={gridDates}
@@ -523,16 +453,19 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
 
 function SummaryRow({
   label,
+  labelClass = "",
   dates,
   value,
 }: {
   label: string;
+  /** Màu chữ của nhãn – cùng màu nhóm với biểu đồ Độ phủ. */
+  labelClass?: string;
   dates: string[];
   value: (d: string) => string;
 }) {
   return (
     <tr className="bg-slate-50 text-slate-600">
-      <td className="sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap">
+      <td className={`sticky left-0 z-10 bg-slate-50 border-t border-r border-slate-200 px-2 py-1 font-medium whitespace-nowrap ${labelClass}`}>
         {label}
       </td>
       <td className="border-t border-slate-200" />

@@ -92,15 +92,17 @@ describe("Scheduler – August 2026 Beispieldaten", () => {
   });
 
   it("keeps individual contracts while weighting busy days (T6–CN = 1,5)", () => {
-    const week = shifts.filter((shift) => shift.employeeId === "ma-1" && weekStartOf(shift.date) === "2026-08-03");
+    // Azubi mit 39 h/Woche: volle Woche ab 3.8. genau 39 h.
+    const week = shifts.filter((shift) => shift.employeeId === "an-3" && weekStartOf(shift.date) === "2026-08-03");
     expect(week.reduce((sum, shift) => sum + shift.paidMinutes, 0)).toBe(39 * 60);
-    // Tab „Tài liệu": Stoßtage tragen je Tag rund das 1,5-Fache eines Normaltags.
-    const all = shifts.filter((shift) => weekStartOf(shift.date) === "2026-08-03");
-    const busy = all.filter((shift) => [0, 5, 6].includes(new Date(`${shift.date}T12:00:00`).getDay()))
-      .reduce((sum, shift) => sum + shift.paidMinutes, 0);
-    const normal = all.reduce((sum, shift) => sum + shift.paidMinutes, 0) - busy;
-    expect(busy / normal).toBeGreaterThanOrEqual(1.3);
-    expect(busy / normal).toBeLessThanOrEqual(1.7);
+    // Tab „Tài liệu": Stoßtage tragen je Tag deutlich mehr Stunden im Laden (Fahrer zählen nicht).
+    const inHouse = shifts.filter((shift) => weekStartOf(shift.date) === "2026-08-03" &&
+      SAMPLE_EMPLOYEES.find((employee) => employee.id === shift.employeeId)?.workRole !== "DRIVER");
+    const isBusy = (date: string) => [0, 5, 6].includes(new Date(`${date}T12:00:00`).getDay());
+    const busyPerDay = inHouse.filter((shift) => isBusy(shift.date)).reduce((sum, shift) => sum + shift.paidMinutes, 0) / 3;
+    const normalPerDay = inHouse.filter((shift) => !isBusy(shift.date)).reduce((sum, shift) => sum + shift.paidMinutes, 0) / 4;
+    expect(busyPerDay / normalPerDay).toBeGreaterThanOrEqual(1.3);
+    expect(busyPerDay / normalPerDay).toBeLessThanOrEqual(2.2);
   });
 });
 

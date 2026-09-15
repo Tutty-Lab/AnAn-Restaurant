@@ -53,7 +53,7 @@ describe("Scheduler mit Feiertagen (Dezember 2026)", () => {
   const holidays = publicHolidays(2026);
   const openDays = datesOfMonth(2026, 12).filter(
     (d) => !resolveDay(DEFAULT_WORK_HOURS, d, holidays, {}).closed,
-  ).length;
+  );
   const shifts = generateSchedule({
     year: 2026,
     month: 12, // enthält 1. und 2. Weihnachtstag
@@ -67,13 +67,13 @@ describe("Scheduler mit Feiertagen (Dezember 2026)", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("plant Schichten an Feiertagen im 10:30–22:00-Fenster (offen wie Sonntag)", () => {
-    // 25.12. ist Feiertag -> offen wie Sonntag, durchgehend 10:30–22:00.
+  it("plant Schichten an Feiertagen im 12:00–22:30-Fenster (offen wie Sonntag)", () => {
+    // 25.12.2026 ist ein Freitag und Feiertag -> offen wie Sonntag, durchgehend 12:00–22:30.
     const xmas = shifts.filter((s) => s.date === "2026-12-25");
     expect(xmas.length).toBeGreaterThan(0);
     for (const s of xmas) {
-      expect(s.startMinutes).toBeGreaterThanOrEqual(10 * 60 + 30);
-      expect(s.endMinutes).toBeLessThanOrEqual(22 * 60);
+      expect(s.startMinutes).toBeGreaterThanOrEqual(12 * 60);
+      expect(s.endMinutes).toBeLessThanOrEqual(22 * 60 + 30);
     }
   });
 });

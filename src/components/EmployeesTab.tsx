@@ -1,19 +1,21 @@
 import { useMemo, useState } from "react";
 import type { UseScheduleReturn } from "../hooks/useSchedule";
-import type { Employee, EmploymentType } from "../types";
+import type { DateRange, Employee, EmploymentType, WorkRole } from "../types";
 import { splitTargetHours } from "../lib/splitTargetHours";
 import { WEEKDAY_SHORT_VI, type WeekdayKey } from "../lib/demand";
 import { monthlyTargetMinutesFor } from "../lib/contract";
-import { employmentLabelVi, employmentShortVi } from "../lib/employment";
+import { employmentLabelVi, employmentShortVi, roleLabelVi, WORK_ROLES } from "../lib/employment";
 import { minutesToShortHours, minutesToTime, timeToMinutes } from "../lib/time";
 import type { WorkHoursConfig } from "../lib/workHours";
 
 const inputClass =
   "rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500";
 
-/** Voreinstellung der festen Schicht, wenn eingeschaltet: 6:30–14:30. */
-const FIXED_START_DEFAULT = "06:30";
+/** Voreinstellung der festen Schicht, wenn eingeschaltet: Mittagsblock. */
+const FIXED_START_DEFAULT = "11:00";
 const FIXED_END_DEFAULT = "14:30";
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const WEEKDAY_ORDER: WeekdayKey[] = [
   "monday",
@@ -24,6 +26,13 @@ const WEEKDAY_ORDER: WeekdayKey[] = [
   "saturday",
   "sunday",
 ];
+
+const ROLE_BADGE: Record<WorkRole | "NONE", string> = {
+  KITCHEN: "bg-orange-50 text-orange-700",
+  SERVICE: "bg-sky-50 text-sky-700",
+  DRIVER: "bg-violet-50 text-violet-700",
+  NONE: "bg-slate-100 text-slate-500",
+};
 
 /** Số ngày làm (= số ca) cho một mục tiêu, hoặc thông báo lỗi. */
 function splitInfo(targetHours: number, type: EmploymentType): { ok: boolean; text: string } {
@@ -36,14 +45,26 @@ function splitInfo(targetHours: number, type: EmploymentType): { ok: boolean; te
   }
 }
 
+/** "92,70" / "92.7" -> 92.7; Unsinn -> 0. */
+function parseHours(text: string): number {
+  const value = Number(text.trim().replace(",", "."));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+const formatHours = (hours: number) => hours.toLocaleString("de-DE", { maximumFractionDigits: 2 });
+const shortDate = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.`;
+
 /**
- * Entwurf, während im Blatt getippt wird. Die Wochenstunden sind ein STRING,
- * damit man das Feld leeren kann, ohne dass es auf 0 zurückspringt.
+ * Entwurf, während im Blatt getippt wird. Die Stunden sind ein STRING,
+ * damit man das Feld leeren und mit Komma tippen kann.
  */
 type Draft = {
   name: string;
   employmentType: EmploymentType;
-  weekly: string;
+  contract: "week" | "month";
+  hours: string;
+  role: WorkRole | "";
+  schoolPeriods: DateRange[];
   fixed: boolean;
   fixedStart: string; // "HH:MM"
   fixedEnd: string; // "HH:MM"
@@ -53,10 +74,14 @@ type Draft = {
 };
 
 function draftFrom(emp?: Employee): Draft {
+  const weekly = emp?.weeklyHours != null;
   return {
     name: emp?.name ?? "",
-    employmentType: emp?.employmentType ?? "VOLLZEIT",
-    weekly: emp?.weeklyHours != null ? String(emp.weeklyHours) : "39",
+    employmentType: emp?.employmentType ?? "TEILZEIT",
+    contract: emp ? (weekly ? "week" : "month") : "month",
+    hours: emp ? (weekly ? formatHours(emp.weeklyHours!) : formatHours(emp.targetMinutes / 60)) : "",
+    role: emp?.workRole ?? "",
+    schoolPeriods: (emp?.schoolPeriods ?? []).map((period) => ({ ...period })),
     fixed: !!emp?.fixedShift,
     // Vorhandene feste Schicht übernehmen, sonst die Voreinstellung anzeigen.
     fixedStart: emp?.fixedShift ? minutesToTime(emp.fixedShift.startMinutes) : FIXED_START_DEFAULT,
@@ -76,7 +101,7 @@ function advancedSummary(d: Draft): string | null {
     parts.push(`làm ${days.join(", ")}`);
   }
   if (Number(d.maxDays) >= 1) parts.push(`tối đa ${Math.min(7, Math.round(Number(d.maxDays)))} ngày/tuần`);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d.startDate)) {
+  if (ISO_DATE.test(d.startDate)) {
     const [year, month, day] = d.startDate.split("-");
     parts.push(`vào làm ${day}.${month}.${year}`);
   }
@@ -92,17 +117,29 @@ function safeMinutes(time: string, fallback: string): number {
   }
 }
 
+/** Gültige Zeiträume, Anfang ≤ Ende, sortiert. */
+function cleanPeriods(periods: DateRange[]): DateRange[] {
+  return periods
+    .filter((period) => ISO_DATE.test(period.start) && ISO_DATE.test(period.end))
+    .map((period) => (period.start <= period.end ? period : { start: period.end, end: period.start }))
+    .sort((a, b) => a.start.localeCompare(b.start));
+}
+
 /** Entwurf -> Mitarbeiter-Felder (ohne id). */
 function draftToEmployee(d: Draft): Omit<Employee, "id"> {
-  const weekly = Math.max(0, Math.round(Number(d.weekly) || 0));
+  const hours = parseHours(d.hours);
   const tage = Number(d.maxDays);
   const fixedStart = safeMinutes(d.fixedStart, FIXED_START_DEFAULT);
   const fixedEnd = safeMinutes(d.fixedEnd, FIXED_END_DEFAULT);
+  const periods = cleanPeriods(d.schoolPeriods);
   return {
     name: d.name.trim() || "Nhân viên mới",
     employmentType: d.employmentType,
-    targetMinutes: 0, // wird je Monat aus weeklyHours abgeleitet (contract.ts)
-    weeklyHours: weekly,
+    // Monatsvertrag in Minuten; beim Wochenvertrag leitet contract.ts das Soll je Monat ab.
+    targetMinutes: d.contract === "month" ? Math.round(hours * 60) : 0,
+    weeklyHours: d.contract === "week" ? Math.round(hours * 100) / 100 : undefined,
+    workRole: d.role || undefined,
+    schoolPeriods: periods.length > 0 ? periods : undefined,
     // Ende muss nach Beginn liegen – sonst die feste Schicht ignorieren, statt
     // eine kaputte Zeitspanne zu speichern.
     fixedShift:
@@ -115,12 +152,12 @@ function draftToEmployee(d: Draft): Omit<Employee, "id"> {
         : [...d.availableWeekdays],
     maxDaysPerWeek: d.maxDays === "" || tage < 1 ? undefined : Math.min(7, Math.round(tage)),
     // Leeres Feld = von Monatsanfang an dabei (kein Eintrittsdatum).
-    startDate: /^\d{4}-\d{2}-\d{2}$/.test(d.startDate) ? d.startDate : undefined,
+    startDate: ISO_DATE.test(d.startDate) ? d.startDate : undefined,
   };
 }
 
 export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
-  const { schedule, openDays, openDates, addEmployee, updateEmployee, removeEmployee } = store;
+  const { schedule, openDates, addEmployee, updateEmployee, removeEmployee } = store;
   const locked = Boolean(schedule.lockedAt);
 
   // null = zu; "new" = anlegen; sonst = die id, die bearbeitet wird.
@@ -153,9 +190,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
         </button>
       </div>
       <p className="text-xs text-slate-500 mb-4">
-        Giờ nhập theo <b>tuần</b>. Tuần đủ giữ đúng giờ hợp đồng; tuần vắt qua 2 tháng chia theo <b>hệ số ngày</b>
-        (VD T3+T4 cuối tháng ≈ 26% tuần).
-        Tháng này tính định mức trên <b>{openDays}</b> ngày, tối đa 6 ngày mỗi tuần. Bấm vào một người để sửa.
+        Hợp đồng theo <b>tháng</b> hoặc theo <b>tuần</b> (Azubi). Lịch xếp theo bậc 30′, không vượt hợp đồng. Bấm vào một người để sửa.
       </p>
 
       {locked && (
@@ -220,7 +255,7 @@ export function EmployeesTab({ store }: { store: UseScheduleReturn }) {
   );
 }
 
-/** Kompakte Zeile in der Liste: Name, Art, Wochenstunden, Besonderheiten. */
+/** Kompakte Zeile in der Liste: Name, Art, Bereich, Vertrag, Besonderheiten. */
 function EmployeeSummaryRow({
   emp,
   openDates,
@@ -233,6 +268,11 @@ function EmployeeSummaryRow({
   const monatMin = monthlyTargetMinutesFor(emp, openDates, workHours);
   const monatH = monatMin / 60;
   const info = splitInfo(monatH, emp.employmentType);
+  const first = openDates[0];
+  const last = openDates[openDates.length - 1];
+  const schoolThisMonth = first && last
+    ? (emp.schoolPeriods ?? []).filter((period) => period.start <= last && period.end >= first)
+    : [];
 
   return (
     <div className="flex-1 min-w-0">
@@ -241,12 +281,22 @@ function EmployeeSummaryRow({
         <span className="shrink-0 rounded bg-slate-100 text-slate-600 text-[11px] px-1.5 py-0.5">
           {employmentShortVi(emp.employmentType)}
         </span>
+        <span className={`shrink-0 rounded text-[11px] px-1.5 py-0.5 ${ROLE_BADGE[emp.workRole ?? "NONE"]}`}>
+          {roleLabelVi(emp.workRole)}
+        </span>
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
         <span>
-          {emp.weeklyHours ?? 0}h/tuần · {monatH > 0 ? `${minutesToShortHours(monatMin)} · ` : ""}
+          {emp.weeklyHours != null
+            ? `${formatHours(emp.weeklyHours)}h/tuần · ${minutesToShortHours(monatMin)} tháng này · `
+            : `${formatHours(emp.targetMinutes / 60)}h/tháng · `}
           <span className={info.ok ? "" : "text-rose-600"}>{info.text}</span>
         </span>
+        {schoolThisMonth.map((period) => (
+          <span key={period.start} className="rounded bg-amber-50 text-amber-800 px-1.5 py-0.5">
+            học {shortDate(period.start)}–{shortDate(period.end)}
+          </span>
+        ))}
         {emp.fixedShift ? (
           <span className="rounded bg-indigo-50 text-indigo-700 px-1.5 py-0.5">
             ca cố định {minutesToTime(emp.fixedShift.startMinutes)}–
@@ -282,10 +332,13 @@ function EmployeeSheet({
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) =>
     setD((prev) => ({ ...prev, [k]: v }));
+  const setPeriod = (index: number, patch: Partial<DateRange>) =>
+    set("schoolPeriods", d.schoolPeriods.map((period, k) => (k === index ? { ...period, ...patch } : period)));
 
   const monatMin = monthlyTargetMinutesFor({ ...draftToEmployee(d), id: employee?.id ?? "preview" }, openDates, workHours);
   const monatH = monatMin / 60;
   const info = splitInfo(monatH, d.employmentType);
+  const plannedMonthly = Math.floor(monatMin / 30) * 30;
 
   return (
     <div
@@ -326,29 +379,106 @@ function EmployeeSheet({
               <select
                 className={`${inputClass} w-full mt-1`}
                 value={d.employmentType}
-                onChange={(e) => set("employmentType", e.target.value as EmploymentType)}
+                onChange={(e) => {
+                  const type = e.target.value as EmploymentType;
+                  // Azubi: Wochenvertrag 39 h als Vorschlag, wenn noch nichts eingetragen ist.
+                  if (type === "AZUBI" && parseHours(d.hours) === 0) {
+                    setD((prev) => ({ ...prev, employmentType: type, contract: "week", hours: "39" }));
+                  } else {
+                    set("employmentType", type);
+                  }
+                }}
               >
                 <option value="VOLLZEIT">{employmentLabelVi("VOLLZEIT")}</option>
                 <option value="TEILZEIT">{employmentLabelVi("TEILZEIT")}</option>
                 <option value="MINIJOB">{employmentLabelVi("MINIJOB")}</option>
+                <option value="AZUBI">{employmentLabelVi("AZUBI")}</option>
               </select>
             </label>
             <label className="block">
-              <span className="text-xs text-slate-600">Giờ / tuần</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
+              <span className="text-xs text-slate-600">Nhóm</span>
+              <select
                 className={`${inputClass} w-full mt-1`}
-                value={d.weekly}
-                onChange={(e) => set("weekly", e.target.value)}
+                value={d.role}
+                onChange={(e) => set("role", e.target.value as WorkRole | "")}
+              >
+                <option value="">{roleLabelVi(undefined)}</option>
+                {WORK_ROLES.map((role) => (
+                  <option key={role} value={role}>{roleLabelVi(role)}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs text-slate-600">Hợp đồng theo</span>
+              <select
+                className={`${inputClass} w-full mt-1`}
+                value={d.contract}
+                onChange={(e) => set("contract", e.target.value as Draft["contract"])}
+              >
+                <option value="month">Tháng</option>
+                <option value="week">Tuần</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-600">Giờ / {d.contract === "week" ? "tuần" : "tháng"}</span>
+              <input
+                inputMode="decimal"
+                className={`${inputClass} w-full mt-1`}
+                value={d.hours}
+                placeholder={d.contract === "week" ? "39" : "92,70"}
+                onChange={(e) => set("hours", e.target.value)}
               />
             </label>
           </div>
           <div className={`text-xs ${info.ok ? "text-slate-500" : "text-rose-600"}`}>
-            Tháng này ≈ <b>{minutesToShortHours(monatMin)}</b> · {info.text}
+            Tháng này ≈ <b>{minutesToShortHours(plannedMonthly)}</b> · {info.text}
           </div>
+
+          {(d.employmentType === "AZUBI" || d.schoolPeriods.length > 0) && (
+            <div className="rounded-lg border border-slate-200 px-3 py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-700">Kỳ học</span>
+                <button
+                  type="button"
+                  onClick={() => set("schoolPeriods", [...d.schoolPeriods, { start: "", end: "" }])}
+                  className="text-xs font-medium text-slate-700 underline"
+                >
+                  + Thêm kỳ học
+                </button>
+              </div>
+              {d.schoolPeriods.length === 0 ? (
+                <p className="mt-1 text-xs text-slate-400">Chưa có kỳ học.</p>
+              ) : (
+                d.schoolPeriods.map((period, index) => (
+                  <div key={index} className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      type="date"
+                      className={inputClass}
+                      value={period.start}
+                      onChange={(e) => setPeriod(index, { start: e.target.value })}
+                    />
+                    <span className="text-slate-400">–</span>
+                    <input
+                      type="date"
+                      className={inputClass}
+                      value={period.end}
+                      onChange={(e) => setPeriod(index, { end: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => set("schoolPeriods", d.schoolPeriods.filter((_, k) => k !== index))}
+                      className="text-xs text-slate-500 hover:text-slate-700 underline"
+                    >
+                      Xoá
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
           {/*
             „Nâng cao": selten gebraucht, deshalb eingeklappt. Hat die Person
@@ -476,9 +606,6 @@ function EmployeeSheet({
                   </button>
                 )}
               </div>
-              <span className="mt-1 block text-xs text-slate-400">
-                Vào giữa tháng thì đặt ngày ở đây — định mức chỉ tính từ ngày này, không báo thiếu giờ. Bỏ trống = làm từ đầu tháng.
-              </span>
             </label>
           </div>
             </div>

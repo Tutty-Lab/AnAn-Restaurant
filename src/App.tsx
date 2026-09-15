@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSchedule } from "./hooks/useSchedule";
+import { GenerateScheduleDialog } from "./components/GenerateScheduleDialog";
 import { SettingsTab } from "./components/SettingsTab";
 import { EmployeesTab } from "./components/EmployeesTab";
 import { ScheduleTab } from "./components/ScheduleTab";
@@ -37,6 +38,27 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
     setTab(id);
     setDocsOpen(false);
   };
+
+  // „Tạo lịch làm việc" sitzt über den Tabs – erreichbar von jedem Tab aus. Popup
+  // statt window.confirm: eingebettete Browser (Messenger, Zalo) schlucken den.
+  const [genDialogOpen, setGenDialogOpen] = useState(false);
+  // Kurze Erfolgsmeldung nach dem Erzeugen. genStamp steigt bei jedem
+  // erfolgreichen Lauf; der Effekt liest DANACH die (frische) Prüfung aus.
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (store.genStamp === 0) return;
+    const fehler = store.validation.errors.filter((e) => e.severity !== "warning").length;
+    const warn = store.validation.errors.filter((e) => e.severity === "warning").length;
+    setToast(
+      fehler > 0
+        ? `Đã tạo lịch — nhưng còn ${fehler} lỗi, xem chi tiết ở phần trạng thái.`
+        : warn > 0
+          ? `✓ Đã tạo lịch mới (còn ${warn} cảnh báo thiếu giờ — bấm (i) để xem).`
+          : "✓ Đã tạo lịch mới — hợp lệ, giờ chia theo hệ số ngày.",
+    );
+    const t = window.setTimeout(() => setToast(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [store.genStamp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen">
@@ -120,8 +142,63 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => setGenDialogOpen(true)}
+            disabled={store.schedule.employees.length === 0}
+            className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-40"
+          >
+            Tạo lịch làm việc
+          </button>
         </div>
       </nav>
+
+      {/* Popup chọn tháng/năm – nhắc kiểm tra ngày lễ/giờ đặc biệt, cảnh báo thay lịch và mở khóa. */}
+      {genDialogOpen && (
+        <GenerateScheduleDialog
+          currentYear={store.schedule.year}
+          currentMonth={store.schedule.month}
+          hasShifts={store.schedule.shifts.length > 0}
+          isLocked={store.isLocked}
+          dateOverrides={store.schedule.dateOverrides}
+          onClose={() => setGenDialogOpen(false)}
+          onOpenSettings={() => {
+            setGenDialogOpen(false);
+            openTab("einstellungen");
+          }}
+          onConfirm={(target) => {
+            setGenDialogOpen(false);
+            store.generate(target);
+            openTab("dienstplan");
+          }}
+        />
+      )}
+
+      {(store.genError || toast) && (
+        <div className="no-print mx-auto max-w-[1500px] px-3 sm:px-4 mt-3 space-y-2">
+          {store.genError && (
+            <div role="alert" className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+              {store.genError}
+            </div>
+          )}
+          {/* Erfolgsmeldung nach „Tạo lịch"; Details zu Warnungen/Fehlern stehen aufklappbar im Dashboard. */}
+          {toast && (
+            <div
+              role="status"
+              className={`flex items-start gap-2 rounded border px-3 py-2 text-sm ${
+                toast.startsWith("✓")
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : "bg-amber-50 border-amber-200 text-amber-900"
+              }`}
+            >
+              <span className="flex-1">{toast}</span>
+              <button type="button" onClick={() => setToast(null)} className="shrink-0 opacity-60 hover:opacity-100" aria-label="Đóng">
+                ×
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <main className="mx-auto max-w-[1500px] px-3 sm:px-4 py-4">
         {docsOpen ? (

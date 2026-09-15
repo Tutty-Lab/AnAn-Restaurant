@@ -21,10 +21,10 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon.svg"],
       manifest: {
-        name: "Lịch làm việc & Bảng chấm công",
-        short_name: "Lịch làm việc",
+        name: "AnAn · Lịch làm việc & Bảng chấm công",
+        short_name: "AnAn Lịch",
         description:
-          "Tạo lịch làm việc hàng tháng và in bảng chấm công (Stundenzettel) cho cửa hàng ở Đức.",
+          "Tạo lịch làm việc hàng tháng và in bảng chấm công (Stundenzettel) cho Restaurant AnAn.",
         lang: "vi",
         dir: "ltr",
         theme_color: "#0f172a",

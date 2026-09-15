@@ -29,9 +29,18 @@ Hai nhóm quy tắc: **(1) LUẬT** (không được vi phạm) và **(2) quy t�
 
 ## 2. Quy tắc app / quán — KHÔNG phải luật (đổi được tuỳ quán)
 
-- **Ưu tiên phủ peak hour và peak day** (giờ cao điểm, ngày đông).
-- **Giờ mở cửa và giờ đóng cửa luôn luôn ít nhất 2 nhân viên** — vì có **bồi** và
-  **bếp** (mỗi bộ phận cần người trực).
+Restaurant AnAn:
+
+- **Giờ mở:** T2–T6 11:00–14:30 và 17:00–22:30 · T7 11:00–22:30 · CN và ngày lễ 12:00–22:30.
+- **Peak hour chủ yếu buổi tối**; ngày đông nhất **T6, T7, CN** (hệ số 1,5) – ưu tiên nhiều người buổi tối của 3 ngày này.
+- **Trong giờ mở luôn ít nhất 2 người trong quán**, gồm ít nhất 1 **bếp** và **2 phục vụ** (người chưa gán nhóm tính như phục vụ).
+- **Buổi trưa chỉ cần 2 nhân viên bếp.**
+- **Nhóm:** Bếp, Phục vụ, Lái xe – admin gán trong tab Nhân viên.
+- **Lái xe** chỉ làm **18:00–21:00**, **Chủ Nhật 18:00–22:00** (ngày lễ như Chủ Nhật); không tính vào số người trong quán; mỗi tối 1–2 lái xe.
+- **Toàn thời gian:** ưu tiên ca và giờ làm cố định (cùng thứ, cùng giờ mỗi tuần).
+- **Azubi:** 39 giờ/tuần; trong kỳ học không đi làm.
+- **Nhân viên còn lại** (bán thời gian, minijob, lái xe): ưu tiên làm vào peak hour.
+- **Hợp đồng theo tháng** (ví dụ 92,70h) xếp theo bậc 30′ và không vượt hợp đồng.
 
 > Các quy tắc này là vận hành của quán, không phải luật — có thể chỉnh theo từng
 > cửa hàng (số người tối thiểu, khung giờ cao điểm, số ngày mở…). Khi đổi, nhớ

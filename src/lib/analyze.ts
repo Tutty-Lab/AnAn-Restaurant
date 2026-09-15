@@ -22,7 +22,7 @@ import {
   type OverrideMap,
   type WorkHoursConfig,
 } from "./workHours";
-import { coveragePoints, staffingWindows, weightedDailyTargets, workingAt } from "./staffing";
+import { presentGroups, staffGroupOf, staffingWindows, staffRange, weightedDailyTargets, type StaffGroup } from "./staffing";
 import { weekStartOf } from "./weeks";
 import { mayWorkOn } from "./availability";
 
@@ -38,6 +38,7 @@ export type PeakCoverage = {
   ok: boolean;
   startMinutes: number;
   endMinutes: number;
+  groups: readonly StaffGroup[];
 };
 
 export type DayReport = {
@@ -45,6 +46,7 @@ export type DayReport = {
   weekday: WeekdayKey;
   closed: boolean;
   shiftCount: number;
+  /** Bezahlte Stunden IM LADEN (Bếp + Phục vụ, ohne Fahrer) – wie im Scheduler. */
   paidHours: number;
   /** Rechnerisches Tages-Soll: Gesamtstunden × Tagesgewicht / Summe Gewichte. */
   targetHours: number;
@@ -102,7 +104,14 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
     else byDate.set(s.date, [s]);
   }
 
-  // Tages-Soll genauso herleiten wie der Scheduler: geschlossene Tage tragen 0.
+  const employeesById = new Map(input.employees.map((employee) => [employee.id, employee]));
+  const present = presentGroups(input.employees);
+  const groupOfShift = (shift: Shift) => staffGroupOf(employeesById.get(shift.employeeId));
+  const inHouseMinutes = (shifts: Shift[]) =>
+    shifts.filter((shift) => groupOfShift(shift) !== "DRIVER").reduce((sum, shift) => sum + shift.paidMinutes, 0);
+
+  // Tages-Soll genauso herleiten wie der Scheduler: geschlossene Tage tragen 0,
+  // gezählt werden nur die Stunden im Laden.
   const byWeek = new Map<string, string[]>();
   for (const date of dates) {
     if (resolveDay(input.workHours, date, holidays, overrides).closed) continue;
@@ -111,15 +120,13 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
   }
   const dailyTargets = new Map<string, number>();
   for (const weekDates of byWeek.values()) {
-    const hours = weekDates.reduce((sum, date) => sum + (byDate.get(date) ?? []).reduce((acc, shift) => acc + shift.paidMinutes, 0), 0) / 60;
+    const hours = weekDates.reduce((sum, date) => sum + inHouseMinutes(byDate.get(date) ?? []), 0) / 60;
     const openMinutesOf = (value: string) => resolveDay(input.workHours, value, holidays, overrides).blocks
       .reduce((sum, block) => sum + (block.endMinutes - block.startMinutes), 0);
     for (const [date, target] of weightedDailyTargets(weekDates, hours, (value) => effectiveWeekdayKey(value, holidays), openMinutesOf)) {
       dailyTargets.set(date, target);
     }
   }
-  const employeesById = new Map(input.employees.map((employee) => [employee.id, employee]));
-
   const days: DayReport[] = [];
   for (const date of dates) {
     const day = resolveDay(input.workHours, date, holidays, overrides);
@@ -131,14 +138,13 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
 
     const peaks: PeakCoverage[] = [];
     if (!day.closed) {
-      for (const peak of staffingWindows(day.blocks, effectiveWeekdayKey(date, holidays))) {
+      for (const peak of staffingWindows(day.blocks, effectiveWeekdayKey(date, holidays), present)) {
         const from = peak.startMinutes;
         const to = peak.endMinutes;
-        const points = coveragePoints(available, from, to).slice(0, -1);
-        const counts = points.map((minute) => new Set(available.filter((shift) => workingAt(shift, minute)).map((shift) => shift.employeeId)).size);
-        const minStaff = counts.length ? Math.min(...counts) : 0;
-        const maxStaff = counts.length ? Math.max(...counts) : 0;
+        const { min: minStaff, max: maxStaff } = staffRange(
+          available.filter((shift) => peak.groups.includes(groupOfShift(shift))), from, to);
         peaks.push({
+          groups: peak.groups,
           label: peak.label,
           minStaff,
           maxStaff,
@@ -156,7 +162,7 @@ export function analyzeSchedule(input: AnalyzeInput): ScheduleAnalysis {
       weekday: weekdayKeyOf(parseIsoDate(date)),
       closed: day.closed,
       shiftCount: onDay.length,
-      paidHours: onDay.reduce((sum, s) => sum + s.paidMinutes, 0) / 60,
+      paidHours: inHouseMinutes(onDay) / 60,
       targetHours: dailyTargets.get(date) ?? 0,
       peaks,
     });

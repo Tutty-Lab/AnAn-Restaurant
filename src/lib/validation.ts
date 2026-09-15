@@ -4,12 +4,13 @@
 
 import type { Employee, Shift } from "../types";
 import { monthlyTargetMinutes, monthlyTargetMinutesFor, SCHEDULE_SLOT_MINUTES } from "./contract";
-import { calculatePause, minutesToShortHours } from "./time";
+import { calculatePause, minutesToShortHours, minutesToTime } from "./time";
 import { maxConsecutiveRun } from "./consecutive";
 import { weekStartOf } from "./weeks";
-import { validPause } from "./staffing";
+import { driverWindowOf, staffGroupOf, validPause } from "./staffing";
 import { mayWorkOn } from "./availability";
-import type { WorkHoursConfig } from "./workHours";
+import { publicHolidays } from "./holidays";
+import { effectiveWeekdayKey, type WorkHoursConfig } from "./workHours";
 
 export type ValidationError = {
   employeeId?: string;
@@ -76,6 +77,12 @@ export function validateSchedule(
       : monthlyTargetMinutesFor(e, openDays, workHours);
   };
   const employeeById = new Map(employees.map((e) => [e.id, e] as const));
+  const holidaysByYear = new Map<number, Set<string>>();
+  const holidaysOf = (isoDate: string) => {
+    const year = Number(isoDate.slice(0, 4));
+    if (!holidaysByYear.has(year)) holidaysByYear.set(year, publicHolidays(year));
+    return holidaysByYear.get(year)!;
+  };
 
   const shiftsByEmployee = new Map<string, Shift[]>();
   for (const emp of employees) shiftsByEmployee.set(emp.id, []);
@@ -95,6 +102,13 @@ export function validateSchedule(
     if (employee && !mayWorkOn(employee, shift.date)) errors.push({ employeeId: employee.id, date: shift.date,
       message: `${employee.name}: đã xếp vào ngày không thể làm ${shift.date}.`,
     });
+    if (employee && staffGroupOf(employee) === "DRIVER") {
+      // Fahrer: nur 18–21 Uhr, sonntags und an Feiertagen 18–22 Uhr.
+      const window = driverWindowOf(effectiveWeekdayKey(shift.date, holidaysOf(shift.date)));
+      if (shift.startMinutes < window.startMinutes || shift.endMinutes > window.endMinutes) errors.push({ employeeId: employee.id, date: shift.date,
+        message: `${employee.name}: lái xe chỉ làm ${minutesToTime(window.startMinutes)}–${minutesToTime(window.endMinutes)} (ngày ${shift.date}).`,
+      });
+    }
     if (shift.pauseStartMinutes != null && !validPause(shift)) errors.push({ employeeId: shift.employeeId, date: shift.date,
       message: `Giờ nghỉ không hợp lệ ngày ${shift.date}.`,
     });
