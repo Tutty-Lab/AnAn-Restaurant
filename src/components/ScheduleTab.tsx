@@ -106,14 +106,17 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
   const dayStats = useMemo(() => {
     const employeesById = new Map(schedule.employees.map((e) => [e.id, e] as const));
     const stats = new Map<string, {
-      count: number; total: number; early: number; late: number;
+      people: Set<string>; shifts: number; total: number; early: number; late: number;
       kitchen: Set<string>; service: Set<string>; driver: Set<string>;
     }>();
-    for (const d of dates) stats.set(d, { count: 0, total: 0, early: 0, late: 0, kitchen: new Set(), service: new Set(), driver: new Set() });
+    for (const d of dates) stats.set(d, { people: new Set(), shifts: 0, total: 0, early: 0, late: 0, kitchen: new Set(), service: new Set(), driver: new Set() });
     for (const s of schedule.shifts) {
       const st = stats.get(s.date);
       if (!st) continue;
-      st.count += 1;
+      // „Số nhân viên" zählt PERSONEN – wer mittags und abends arbeitet, ist
+      // eine Person mit zwei Diensten (Zeile „Số ca" darunter).
+      st.people.add(s.employeeId);
+      st.shifts += 1;
       st.total += s.paidMinutes;
       if (s.shiftType === "EARLY") st.early += 1;
       else st.late += 1; // LATE hoặc CUSTOM tính là ca tối
@@ -419,7 +422,8 @@ export function ScheduleTab({ store }: { store: UseScheduleReturn }) {
               })}
             </tbody>
             <tfoot>
-              <SummaryRow label="Số nhân viên" dates={gridDates} value={(d) => String(dayStats.get(d)!.count)} />
+              <SummaryRow label="Số nhân viên" dates={gridDates} value={(d) => String(dayStats.get(d)!.people.size)} />
+              <SummaryRow label="Số ca" dates={gridDates} value={(d) => String(dayStats.get(d)!.shifts)} />
               <SummaryRow label="Bếp" labelClass="text-orange-700" dates={gridDates} value={(d) => String(dayStats.get(d)!.kitchen.size)} />
               <SummaryRow label="Phục vụ (bồi)" labelClass="text-sky-700" dates={gridDates} value={(d) => String(dayStats.get(d)!.service.size)} />
               {hasDrivers && (
